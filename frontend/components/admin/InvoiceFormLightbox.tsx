@@ -236,7 +236,6 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
     setLines(newLines);
     setDirty(true);
     setProductSearch('');
-    setProductDropdownOpen(false);
   };
 
   const handleProductSearchKeyDown = (e: React.KeyboardEvent) => {
