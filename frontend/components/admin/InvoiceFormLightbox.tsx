@@ -161,12 +161,12 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
 
   const firstEmptyLineIndex = lines.findIndex((l) => !l.product_id && !l.product_name);
   const getLineCost = (line: LineItem): number | null | undefined => {
-    if (line.cost_price != null && line.cost_price !== '') return Number(line.cost_price);
+    if (line.cost_price != null) return Number(line.cost_price);
     const pid = line.product_id ? String(line.product_id) : '';
     if (!pid) return undefined;
     const p = products.find((q) => String(q.id) === pid);
     const cp = p?.cost_price;
-    return cp != null && cp !== '' ? Number(cp) : undefined;
+    return cp != null ? Number(cp) : undefined;
   };
 
   const selectProductForLine = (index: number, product: Product) => {
