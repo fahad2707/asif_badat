@@ -108,6 +108,33 @@ export default function CustomersPage() {
     }
   };
 
+  const refreshDetailCustomer = async (customerId: string) => {
+    try {
+      const res = await adminApi.get(`/customers/${customerId}`);
+      setDetailCustomer(res.data);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>, customerId: string) => {
+    const file = e.target.files?.[0];
+    if (!file || !customerId) return;
+    setUploadingDoc(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await adminApi.post(`/customers/${customerId}/documents`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      toast.success('Document uploaded');
+      await refreshDetailCustomer(customerId);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Upload failed');
+    } finally {
+      setUploadingDoc(false);
+      e.target.value = '';
+    }
+  };
+
   useEffect(() => {
     fetchCustomers();
   }, [search]);
@@ -656,7 +683,7 @@ export default function CustomersPage() {
                 <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2"><FileText className="w-4 h-4" /> Documents</h4>
                 {(detailCustomer.documents?.length ?? 0) > 0 ? (
                   <ul className="space-y-1 text-sm">
-                    {detailCustomer.documents?.map((d, i) => (
+                    {(detailCustomer.documents ?? []).map((d, i)=> (
                       <li key={i}>
                         <a href={d.url.startsWith('http') ? d.url : `${apiBase}${d.url}`} target="_blank" rel="noopener noreferrer" className="text-[#0f766e] hover:underline">{d.name}</a>
                       </li>
