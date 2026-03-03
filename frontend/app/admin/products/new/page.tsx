@@ -231,20 +231,7 @@ export default function NewProductPage() {
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Subcategory (product appears here on website)</label>
-          <select
-            value={form.sub_category_id}
-            onChange={(e) => setForm((f) => ({ ...f, sub_category_id: e.target.value }))}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2"
-            disabled={!form.category_id}
-          >
-            <option value="">Select subcategory</option>
-            {subCategories.map((s) => (
-              <option key={s.id} value={String(s.id)}>{s.name}</option>
-            ))}
-          </select>
-        </div>
+        {/* Subcategory intentionally hidden in UI; still supported by API if set elsewhere */}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Barcode (for Billing / scanning)</label>

@@ -7,6 +7,37 @@ import { z } from 'zod';
 
 const router = express.Router();
 
+// Inventory summary: total in/out per product
+router.get('/summary', authenticateAdmin, async (req: AuthRequest, res) => {
+  try {
+    const agg = await StockMovement.aggregate([
+      {
+        $group: {
+          _id: '$product_id',
+          in_qty: {
+            $sum: {
+              $cond: [{ $gt: ['$quantity_change', 0] }, '$quantity_change', 0],
+            },
+          },
+          out_qty: {
+            $sum: {
+              $cond: [{ $lt: ['$quantity_change', 0] }, { $multiply: ['$quantity_change', -1] }, 0],
+            },
+          },
+        },
+      },
+    ]);
+    const summary: Record<string, { in: number; out: number }> = {};
+    for (const row of agg) {
+      summary[String(row._id)] = { in: row.in_qty || 0, out: row.out_qty || 0 };
+    }
+    res.json({ summary });
+  } catch (error) {
+    console.error('Inventory summary error:', error);
+    res.status(500).json({ error: 'Failed to fetch inventory summary' });
+  }
+});
+
 // Adjust stock (manual adjustment)
 router.post('/adjust', authenticateAdmin, async (req: AuthRequest, res) => {
   try {

@@ -5,6 +5,7 @@ export interface IReceipt extends Document {
   trx_date: Date;
   customer_id?: mongoose.Types.ObjectId;
   customer_name: string;
+  bank_account_id?: mongoose.Types.ObjectId;
   state?: string;
   city?: string;
   so_id?: string;
@@ -22,6 +23,7 @@ const ReceiptSchema = new Schema<IReceipt>(
     trx_date: { type: Date, required: true },
     customer_id: { type: Schema.Types.ObjectId, ref: 'Customer' },
     customer_name: { type: String, required: true },
+    bank_account_id: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
     state: String,
     city: String,
     so_id: String,

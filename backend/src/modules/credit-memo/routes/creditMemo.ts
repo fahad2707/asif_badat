@@ -1,11 +1,90 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import fs from 'fs';
+import path from 'path';
+import PDFDocument from 'pdfkit';
 import { z } from 'zod';
 import CreditMemo from '../models/CreditMemo';
+import StoreSettings from '../../../models/StoreSettings';
 import { authenticateAdmin, AuthRequest } from '../../../middleware/auth';
 import { approveCreditMemo, cancelCreditMemo, generateCreditMemoNumber } from '../services/creditMemoService';
 
 const router = express.Router();
+const MARGIN = 50;
+const PAGE_WIDTH = 595;
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+const TEAL = '#0f766e';
+
+async function generateCreditMemoPDF(cm: any): Promise<string> {
+  const uploadsDir = path.join(__dirname, '../../../../uploads/credit-memos');
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+  const filename = `credit-memo-${cm.credit_memo_number || cm._id}.pdf`;
+  const filepath = path.join(uploadsDir, filename);
+  if (fs.existsSync(filepath)) {
+    try { fs.unlinkSync(filepath); } catch (_) {}
+  }
+  const doc = new PDFDocument({ margin: MARGIN, size: 'A4' });
+  const stream = fs.createWriteStream(filepath);
+  doc.pipe(stream);
+  const settings = await StoreSettings.findOne().lean().catch(() => null) as any;
+  const businessName = settings?.business_name || 'Express Distributors Inc';
+  let y = MARGIN;
+  doc.fillColor(TEAL);
+  doc.fontSize(18);
+  doc.font('Helvetica-Bold');
+  doc.text(businessName, MARGIN, y);
+  doc.fillColor('black');
+  doc.font('Helvetica');
+  y += 28;
+  doc.fontSize(14);
+  doc.text('CREDIT MEMO', MARGIN, y);
+  y += 22;
+  doc.fontSize(10);
+  const cmNumber = cm.credit_memo_number || cm._id?.toString() || '—';
+  const partyName = cm.type === 'VENDOR' ? (cm.vendor_id as any)?.name : (cm.customer_id as any)?.name;
+  const created = cm.created_at ? new Date(cm.created_at).toLocaleDateString('en-US') : '—';
+  doc.text(`Credit Memo #: ${cmNumber}`, MARGIN, y);
+  doc.text(`Type: ${cm.type}`, MARGIN, y + 14);
+  doc.text(`Party: ${partyName || '—'}`, MARGIN, y + 28);
+  doc.text(`Date: ${created}`, MARGIN, y + 42);
+  doc.text(`Reason: ${cm.reason || '—'}`, MARGIN, y + 56);
+  y += 72;
+  doc.fontSize(10);
+  doc.font('Helvetica-Bold');
+  const colName = MARGIN;
+  const colQty = colName + 220;
+  const colPrice = colQty + 50;
+  const colTotal = colPrice + 80;
+  doc.text('Product', colName, y);
+  doc.text('Qty', colQty, y);
+  doc.text('Unit Price', colPrice, y);
+  doc.text('Total', colTotal, y);
+  doc.font('Helvetica');
+  y += 18;
+  const items = cm.items || [];
+  for (const item of items) {
+    const name = item.product_name || '—';
+    const qty = item.quantity ?? 0;
+    const price = item.unit_price ?? 0;
+    const total = item.total ?? (qty * price);
+    doc.text(name.substring(0, 35), colName, y);
+    doc.text(String(qty), colQty, y);
+    doc.text(Number(price).toFixed(2), colPrice, y);
+    doc.text(Number(total).toFixed(2), colTotal, y);
+    y += 18;
+  }
+  y += 10;
+  doc.font('Helvetica-Bold');
+  doc.text(`Subtotal: ${Number(cm.subtotal ?? 0).toFixed(2)}`, MARGIN, y);
+  doc.text(`Tax: ${Number(cm.tax_amount ?? 0).toFixed(2)}`, MARGIN, y + 14);
+  doc.text(`Total: ${Number(cm.total_amount ?? 0).toFixed(2)}`, MARGIN, y + 28);
+  doc.end();
+  await new Promise<void>((resolve, reject) => {
+    stream.on('finish', resolve);
+    stream.on('error', reject);
+  });
+  return filepath;
+}
 
 const itemSchema = z.object({
   product_id: z.string(),
@@ -84,6 +163,23 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
   } catch (e) {
     console.error('List credit memos:', e);
     res.status(500).json({ error: 'Failed to list credit memos' });
+  }
+});
+
+// Credit memo PDF (must be before GET /:id)
+router.get('/:id/pdf', authenticateAdmin, async (req: AuthRequest, res) => {
+  try {
+    const cm = await CreditMemo.findById(req.params.id)
+      .populate('vendor_id', 'name')
+      .populate('customer_id', 'name')
+      .lean();
+    if (!cm) return res.status(404).json({ error: 'Credit memo not found' });
+    const filepath = await generateCreditMemoPDF(cm);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.download(filepath);
+  } catch (e: any) {
+    console.error('Credit memo PDF error:', e);
+    res.status(500).json({ error: 'Failed to generate PDF' });
   }
 });
 

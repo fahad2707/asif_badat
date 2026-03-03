@@ -29,6 +29,7 @@ export interface IVendor extends Document {
   status: 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
   bank_details?: IBankDetails;
   notes?: string;
+  documents?: { name: string; url: string; uploaded_at?: Date }[];
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
@@ -41,6 +42,15 @@ const BankDetailsSchema = new Schema<IBankDetails>(
     bank_name: String,
     ifsc: String,
     branch: String,
+  },
+  { _id: false }
+);
+
+const VendorDocumentSchema = new Schema(
+  {
+    name: String,
+    url: String,
+    uploaded_at: { type: Date, default: Date.now },
   },
   { _id: false }
 );
@@ -65,6 +75,7 @@ const VendorSchema = new Schema<IVendor>(
     rating: { type: Number, min: 0, max: 100 },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE', 'BLOCKED'], default: 'ACTIVE' },
     bank_details: BankDetailsSchema,
+    documents: [VendorDocumentSchema],
     notes: String,
     is_active: { type: Boolean, default: true },
   },

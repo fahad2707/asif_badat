@@ -27,6 +27,7 @@ interface TaxType {
   id: string;
   name: string;
   rate: number;
+  rate_type?: string;
 }
 
 interface Vendor {
@@ -161,7 +162,7 @@ export default function DataPage() {
   const openAdd = (type: TabId) => {
     if (type === 'categories') setForm({ name: '', description: '', display_order: 0 });
     if (type === 'subcategories') setForm({ name: '', category_id: categories[0]?.id || '', display_order: 0 });
-    if (type === 'tax') setForm({ name: '', rate: 0 });
+    if (type === 'tax') setForm({ name: '', rate: 0, rate_type: 'percent' });
     if (type === 'vendors') setForm({ name: '', contact_name: '', phone: '', email: '' });
     if (type === 'customers') setForm({ name: '', phone: '', email: '', company: '' });
     setModal({ type });
@@ -186,8 +187,8 @@ export default function DataPage() {
         else await adminApi.post('/sub-categories', { name: form.name, category_id: form.category_id, display_order: form.display_order ?? 0 });
       }
       if (type === 'tax') {
-        if (edit) await adminApi.put(`/tax-types/${edit.id}`, { name: form.name, rate: form.rate });
-        else await adminApi.post('/tax-types', { name: form.name, rate: form.rate });
+        if (edit) await adminApi.put(`/tax-types/${edit.id}`, { name: form.name, rate: form.rate, rate_type: form.rate_type || 'percent' });
+        else await adminApi.post('/tax-types', { name: form.name, rate: form.rate, rate_type: form.rate_type || 'percent' });
       }
       if (type === 'vendors') {
         if (edit) await adminApi.put(`/vendors/${edit.id}`, form);
@@ -355,7 +356,7 @@ export default function DataPage() {
                       <input type="checkbox" checked={isAllSelected('tax')} onChange={() => toggleSelectAll('tax')} className="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                     </th>
                     <th className="text-left py-2 px-4 text-gray-700">Name</th>
-                    <th className="text-right py-2 px-4 text-gray-700">Rate %</th>
+                    <th className="text-right py-2 px-4 text-gray-700">Rate</th>
                     <th className="text-right py-2 px-4 text-gray-700">Actions</th>
                   </tr>
                 </thead>
@@ -367,7 +368,7 @@ export default function DataPage() {
                         <input type="checkbox" checked={isSelected('tax', t.id)} onChange={() => toggleSelect('tax', t.id)} className="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                       </td>
                       <td className="py-2 px-4 font-medium">{t.name}</td>
-                      <td className="py-2 px-4 text-right">{t.rate}%</td>
+                      <td className="py-2 px-4 text-right">{t.rate_type === 'amount' ? `$${Number(t.rate).toFixed(2)}` : `${t.rate}%`}</td>
                       <td className="py-2 px-4 text-right">
                         <button onClick={() => openEdit('tax', t)} className="p-1.5 text-primary-600 hover:bg-primary-50 rounded mr-1">
                           <Edit className="w-4 h-4" />
@@ -524,7 +525,14 @@ export default function DataPage() {
                       <input type="text" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg" required />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Rate % *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Rate type</label>
+                      <select value={form.rate_type || 'percent'} onChange={(e) => setForm({ ...form, rate_type: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        <option value="percent">Percentage (%)</option>
+                        <option value="amount">Fixed amount (USD)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{form.rate_type === 'amount' ? 'Amount (USD) *' : 'Rate % *'}</label>
                       <input type="number" min={0} step={0.01} value={form.rate ?? ''} onChange={(e) => setForm({ ...form, rate: parseFloat(e.target.value) || 0 })} className="w-full px-3 py-2 border border-gray-300 rounded-lg" required />
                     </div>
                   </>

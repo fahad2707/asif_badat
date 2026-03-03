@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Edit, Trash2, X, Wallet, TrendingUp, Tag, Award } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Wallet, TrendingUp, Tag, Award, Search } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 
@@ -20,7 +20,7 @@ interface Expense {
   created_at: string;
 }
 
-const PAYMENT_MODES = ['CASH', 'BANK', 'UPI', 'CARD'];
+// Payment modes now come from Catalog → Payment methods
 
 export default function ExpensesPage() {
   const [summary, setSummary] = useState<{
@@ -46,6 +46,8 @@ export default function ExpensesPage() {
   });
   const [filters, setFilters] = useState({ start: '', end: '', expense_type: '', payment_mode: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [paymentModes, setPaymentModes] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
 
   const thisMonthStart = () => {
     const d = new Date();
@@ -81,10 +83,20 @@ export default function ExpensesPage() {
     }
   };
 
+  const fetchPaymentModes = async () => {
+    try {
+      const res = await adminApi.get('/payment-methods');
+      const list = Array.isArray(res.data) ? res.data : [];
+      setPaymentModes(list.map((p: any) => p.name));
+    } catch {
+      setPaymentModes([]);
+    }
+  };
+
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([fetchSummary(), fetchExpenses()]);
+      await Promise.all([fetchSummary(), fetchExpenses(), fetchPaymentModes()]);
       setLoading(false);
     })();
   }, []);
@@ -181,11 +193,32 @@ export default function ExpensesPage() {
 
   const formatDate = (d: string) => (d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—');
 
+  const filteredExpenses = expenses.filter((e) => {
+    if (!search.trim()) return true;
+    const term = search.toLowerCase();
+    return (
+      e.expense_number.toLowerCase().includes(term) ||
+      e.expense_type.toLowerCase().includes(term) ||
+      (e.description || '').toLowerCase().includes(term) ||
+      (e.vendor_name || '').toLowerCase().includes(term)
+    );
+  });
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900">Expenses</h1>
-      <p className="text-gray-600 mt-1">Track and manage business expenses. Finance → Expenses.</p>
-
+      <div className="bg-white rounded-xl shadow-md p-4 mt-4 mb-6 flex flex-wrap items-center gap-4">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search expenses by number, type, vendor..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-[#0f766e]"
+          />
+        </div>
+      </div>
       {loading ? (
         <div className="flex justify-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-2 border-[#0f766e] border-t-transparent" />
@@ -249,7 +282,7 @@ export default function ExpensesPage() {
             <input type="text" value={filters.expense_type} onChange={(e) => setFilters((f) => ({ ...f, expense_type: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-40" placeholder="Filter by expense type" />
             <select value={filters.payment_mode} onChange={(e) => setFilters((f) => ({ ...f, payment_mode: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
               <option value="">All payment modes</option>
-              {PAYMENT_MODES.map((m) => (
+              {paymentModes.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
@@ -273,12 +306,12 @@ export default function ExpensesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {expenses.length === 0 ? (
+                  {filteredExpenses.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-gray-500">No expenses. Click &quot;Add Expense&quot; to add one.</td>
                     </tr>
                   ) : (
-                    expenses.map((e) => (
+                    filteredExpenses.map((e) => (
                       <tr key={e.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="py-3 px-4 font-medium">{e.expense_number}</td>
                         <td className="py-3 px-4 text-sm">{formatDate(e.date)}</td>
@@ -333,7 +366,7 @@ export default function ExpensesPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment mode *</label>
                 <select value={form.payment_mode} onChange={(e) => setForm((f) => ({ ...f, payment_mode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">
-                  {PAYMENT_MODES.map((m) => (
+                  {paymentModes.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>

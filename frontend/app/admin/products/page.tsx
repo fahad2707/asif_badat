@@ -66,6 +66,7 @@ export default function ProductsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [stockFilter, setStockFilter] = useState<'all' | 'low_stock' | 'out_of_stock'>('all');
 
   const fetchProducts = async () => {
     try {
@@ -210,9 +211,19 @@ export default function ProductsPage() {
     toast.success(`Exported ${rows.length} product(s). Open in Excel.`);
   };
 
-  const filteredProducts = products.filter((p) =>
+  const lowStockThreshold = (p: Product) => p.low_stock_threshold ?? 10;
+  const lowStockCount = products.filter((p) => (p.stock_quantity ?? 0) > 0 && (p.stock_quantity ?? 0) <= lowStockThreshold(p)).length;
+  const outOfStockCount = products.filter((p) => (p.stock_quantity ?? 0) <= 0).length;
+
+  const filteredBySearch = products.filter((p) =>
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+  const filteredProducts =
+    stockFilter === 'low_stock'
+      ? filteredBySearch.filter((p) => (p.stock_quantity ?? 0) > 0 && (p.stock_quantity ?? 0) <= lowStockThreshold(p))
+      : stockFilter === 'out_of_stock'
+        ? filteredBySearch.filter((p) => (p.stock_quantity ?? 0) <= 0)
+        : filteredBySearch;
 
   return (
     <div>
@@ -258,6 +269,46 @@ export default function ProductsPage() {
           </button>
         </div>
       </div>
+
+      {/* Low stock / Out of stock indicators - click to filter */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <button
+          type="button"
+          onClick={() => setStockFilter(stockFilter === 'low_stock' ? 'all' : 'low_stock')}
+          className={`flex items-center gap-4 p-5 rounded-xl border-2 transition-all text-left ${
+            stockFilter === 'low_stock' ? 'border-amber-500 bg-amber-50' : 'border-gray-200 bg-white hover:border-amber-300 hover:bg-amber-50/50'
+          }`}
+        >
+          <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+            <AlertCircle className="w-7 h-7 text-amber-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-amber-700">{lowStockCount}</p>
+            <p className="text-sm font-medium text-gray-600">LOW STOCK</p>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStockFilter(stockFilter === 'out_of_stock' ? 'all' : 'out_of_stock')}
+          className={`flex items-center gap-4 p-5 rounded-xl border-2 transition-all text-left ${
+            stockFilter === 'out_of_stock' ? 'border-red-500 bg-red-50' : 'border-gray-200 bg-white hover:border-red-300 hover:bg-red-50/50'
+          }`}
+        >
+          <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+            <XCircle className="w-7 h-7 text-red-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-red-700">{outOfStockCount}</p>
+            <p className="text-sm font-medium text-gray-600">OUT OF STOCK</p>
+          </div>
+        </button>
+      </div>
+      {stockFilter !== 'all' && (
+        <p className="text-sm text-gray-600 mb-2">
+          Showing only {stockFilter === 'low_stock' ? 'low stock' : 'out of stock'} products.
+          <button type="button" onClick={() => setStockFilter('all')} className="ml-2 text-[#0f766e] font-medium hover:underline">Show all</button>
+        </p>
+      )}
 
       {/* Import preview / progress / summary */}
       {importStep === 'preview' && preview && (

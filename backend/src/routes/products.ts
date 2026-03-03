@@ -8,12 +8,19 @@ import { buildPreview, executeImport } from '../services/productImportService';
 
 const router = express.Router();
 
-function generateItemId() {
-  return 'P' + Math.floor(10000 + Math.random() * 90000).toString();
+async function generateItemId(): Promise<string> {
+  const ProductModel = Product;
+  for (let i = 0; i < 20; i++) {
+    const id = String(Math.floor(100000 + Math.random() * 900000));
+    const exists = await ProductModel.findOne({ sku: id });
+    if (!exists) return id;
+  }
+  return String(Date.now() % 1000000).padStart(6, '0');
 }
 
-router.get('/generate-id', authenticateAdmin, (req, res) => {
-  res.json({ item_id: generateItemId() });
+router.get('/generate-id', authenticateAdmin, async (req, res) => {
+  const item_id = await generateItemId();
+  res.json({ item_id });
 });
 
 // Multer for CSV upload (memory)
@@ -51,11 +58,14 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // Search filter
+    // Search filter (name, description, sku, barcode)
     if (search) {
+      const searchStr = String(search).trim();
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
+        { name: { $regex: searchStr, $options: 'i' } },
+        { description: { $regex: searchStr, $options: 'i' } },
+        { sku: searchStr },
+        { barcode: searchStr },
       ];
     }
 
@@ -77,9 +87,11 @@ router.get('/', async (req, res) => {
         id: product._id.toString(),
         name: product.name,
         slug: product.slug,
+        sku: product.sku,
         description: product.description,
         product_type: product.product_type || 'inventory',
         price: product.price,
+        cost_price: product.cost_price != null ? Number(product.cost_price) : null,
         category_id: product.category_id?._id?.toString(),
         category_name: product.category_id?.name,
         category_slug: product.category_id?.slug,
@@ -111,18 +123,26 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get product by barcode (for POS) — must be before GET /:id
+// Get product by barcode or SKU (for POS / scanner) — must be before GET /:id
 router.get('/barcode/:barcode', authenticateAdmin, async (req, res) => {
   try {
-    const product = await Product.findOne({ barcode: req.params.barcode, is_active: true }).lean();
-
+    const code = req.params.barcode?.trim() || '';
+    let product = await Product.findOne({ barcode: code, is_active: true }).populate('category_id', 'name slug').lean();
+    if (!product) {
+      product = await Product.findOne({ sku: code, is_active: true }).populate('category_id', 'name slug').lean();
+    }
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
     }
-
+    const p = product as any;
     res.json({
-      id: product._id.toString(),
-      ...product,
+      id: p._id.toString(),
+      name: p.name,
+      price: p.price ?? 0,
+      cost_price: p.cost_price != null ? Number(p.cost_price) : null,
+      category_name: p.category_id?.name ?? '',
+      sku: p.sku,
+      barcode: p.barcode,
     });
   } catch (error) {
     console.error('Get product by barcode error:', error);
@@ -196,26 +216,34 @@ router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
       sku: z.string().optional(),
       description: z.string().optional(),
       product_type: z.enum(['inventory', 'non_inventory', 'service']).optional(),
-      price: z.number().positive().optional(),
-      category_id: z.string().optional(),
-      sub_category_id: z.string().optional(),
-      vendor_id: z.string().optional(),
-      tax_rate: z.number().min(0).optional(),
+      price: z.union([z.coerce.number().min(0), z.null()]).optional(),
+      category_id: z.string().optional().or(z.literal('')),
+      sub_category_id: z.string().optional().or(z.literal('')),
+      vendor_id: z.string().optional().or(z.literal('')),
+      tax_rate: z.coerce.number().min(0).optional(),
       image_url: z.union([z.string().url(), z.literal('')]).optional(),
       barcode: z.string().optional(),
-      cost_price: z.number().min(0).optional(),
-      stock_quantity: z.number().int().default(0),
-      low_stock_threshold: z.number().int().min(0).default(10),
+      cost_price: z.coerce.number().min(0).optional(),
+      stock_quantity: z.coerce.number().int().min(0).optional(),
+      low_stock_threshold: z.coerce.number().int().min(0).optional(),
     });
 
-    const data = schema.parse(req.body);
+    const raw = schema.parse(req.body);
+    const data = {
+      ...raw,
+      category_id: raw.category_id || undefined,
+      sub_category_id: raw.sub_category_id || undefined,
+      vendor_id: raw.vendor_id || undefined,
+      stock_quantity: raw.stock_quantity ?? 0,
+      low_stock_threshold: raw.low_stock_threshold ?? 10,
+    };
     const slug = data.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const price = data.price ?? 0;
+    const price = (data.price != null && !Number.isNaN(Number(data.price))) ? Number(data.price) : 0;
 
     const product = await Product.create({
       name: data.name,
       slug,
-      sku: data.sku || generateItemId(),
+      sku: data.sku || (await generateItemId()),
       description: data.description,
       product_type: data.product_type || 'inventory',
       price,
@@ -238,8 +266,11 @@ router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message });
     }
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'A product with this name or SKU/barcode already exists.' });
+    }
     console.error('Create product error:', error);
-    res.status(500).json({ error: 'Failed to create product' });
+    res.status(500).json({ error: error.message || 'Failed to create product' });
   }
 });
 
@@ -250,7 +281,7 @@ router.put('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
       name: z.string().min(1).optional(),
       description: z.string().optional(),
       product_type: z.enum(['inventory', 'non_inventory', 'service']).optional(),
-      price: z.number().positive().optional(),
+      price: z.number().min(0).optional(),
       category_id: z.union([z.string(), z.null()]).optional(),
       sub_category_id: z.union([z.string(), z.null()]).optional(),
       vendor_id: z.string().optional(),

@@ -1,4 +1,7 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import multer from 'multer';
 import Vendor from '../models/Vendor';
 import PurchaseOrder from '../models/PurchaseOrder';
 import { authenticateAdmin, AuthRequest } from '../middleware/auth';
@@ -13,6 +16,21 @@ import {
 } from '../modules/vendors/services/vendorAnalyticsService';
 
 const router = express.Router();
+
+// File uploads for supplier documents
+const vendorUploadsDir = path.join(__dirname, '../../uploads/vendors');
+if (!fs.existsSync(vendorUploadsDir)) {
+  fs.mkdirSync(vendorUploadsDir, { recursive: true });
+}
+const vendorStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, vendorUploadsDir),
+  filename: (req, file, cb) => {
+    const ext = (file.originalname && path.extname(file.originalname)) || '.bin';
+    const name = `${(req as any).params.id}-${Date.now()}${ext}`;
+    cb(null, name);
+  },
+});
+const vendorUpload = multer({ storage: vendorStorage, limits: { fileSize: 15 * 1024 * 1024 } }); // 15MB
 
 function generateSupplierId() {
   return 'S' + Math.floor(10000 + Math.random() * 90000).toString();
@@ -43,14 +61,19 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
       Vendor.countDocuments(query),
     ]);
     const vendorIds = (vendors as any[]).map((v) => v._id);
-    const poAgg = await PurchaseOrder.aggregate([
+    const [poAgg, balanceMap] = await Promise.all([
+      PurchaseOrder.aggregate([
       { $match: { vendor_id: { $in: vendorIds } } },
       { $group: { _id: '$vendor_id', total: { $sum: '$total_amount' } } },
+      ]),
+      getVendorBalancesBulk(vendorIds),
     ]);
     const poMap = new Map(poAgg.map((r: any) => [r._id.toString(), r.total]));
     res.json({
       vendors: (vendors as any[]).map((v) => {
         const purchases = Number(poMap.get(v._id.toString()) || 0);
+        const balance = Number(balanceMap.get(v._id.toString()) ?? purchases);
+        const paid = Math.max(0, purchases - balance);
         return {
           id: v._id.toString(),
           supplier_id: v.supplier_id || v._id.toString().slice(-6).toUpperCase(),
@@ -68,8 +91,10 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
           is_active: v.is_active,
           created_at: v.created_at,
           purchases,
-          payments: 0,
-          balance: purchases,
+          payments: paid,
+          balance,
+          open_balance: balance,
+          paid_balance: paid,
         };
       }),
       pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / Number(limit)) },
@@ -186,6 +211,7 @@ router.get('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
       status: v.status,
       bank_details: v.bank_details,
       notes: v.notes,
+      documents: v.documents || [],
       is_active: v.is_active,
       created_at: v.created_at,
     });
@@ -223,6 +249,28 @@ router.get('/:id/balance', authenticateAdmin, async (req: AuthRequest, res) => {
   } catch (e) {
     console.error('Vendor balance:', e);
     res.status(500).json({ error: 'Failed to fetch balance' });
+  }
+});
+
+// Upload document for supplier (PDF, JPG, etc.)
+router.post('/:id/documents', authenticateAdmin, vendorUpload.single('file'), async (req: AuthRequest, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const vendor = await Vendor.findById(req.params.id);
+    if (!vendor) return res.status(404).json({ error: 'Supplier not found' });
+    const doc = {
+      name: req.file.originalname || req.file.filename,
+      url: `/uploads/vendors/${req.file.filename}`,
+      uploaded_at: new Date(),
+    };
+    const docs = ((vendor as any).documents || []) as any[];
+    docs.push(doc);
+    (vendor as any).documents = docs;
+    await vendor.save();
+    res.json({ document: doc, documents: docs });
+  } catch (error) {
+    console.error('Upload supplier document error:', error);
+    res.status(500).json({ error: 'Failed to upload' });
   }
 });
 

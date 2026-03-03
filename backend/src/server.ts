@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -11,6 +12,8 @@ import productRoutes from './routes/products';
 import categoryRoutes from './routes/categories';
 import subCategoryRoutes from './routes/sub-categories';
 import taxTypesRoutes from './routes/tax-types';
+import paymentMethodsRoutes from './routes/payment-methods';
+import bankAccountsRoutes from './routes/bank-accounts';
 import orderRoutes from './routes/orders';
 import adminRoutes from './routes/admin';
 import posRoutes from './routes/pos';
@@ -73,12 +76,17 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Serve uploaded files (customer documents, etc.)
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/sub-categories', subCategoryRoutes);
 app.use('/api/tax-types', taxTypesRoutes);
+app.use('/api/payment-methods', paymentMethodsRoutes);
+app.use('/api/bank-accounts', bankAccountsRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/pos', posRoutes);

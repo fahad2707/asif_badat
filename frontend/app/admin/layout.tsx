@@ -23,6 +23,7 @@ import {
   PackageCheck,
   FolderTree,
   Wallet,
+  Landmark,
 } from 'lucide-react';
 
 const SIDEBAR_BG = 'bg-[#0f766e]'; // dark teal like AIC
@@ -50,7 +51,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const navItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/admin/billing', label: 'Billing', icon: FileText },
+    { href: '/admin/invoices', label: 'Invoice', icon: FileText },
     { href: '/admin/products', label: 'Products', icon: Package },
     { href: '/admin/catalog', label: 'Categories & Tax', icon: FolderTree },
     { href: '/admin/inventory', label: 'Inventory', icon: Warehouse },
@@ -60,8 +61,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { href: '/admin/orders', label: 'Sales', icon: ShoppingCart },
     { href: '/admin/credit-memos', label: 'Credit Memos', icon: FileSignature },
     { href: '/admin/shipments', label: 'Shipments', icon: PackageCheck },
-    { href: '/admin/receipts', label: 'Receipts', icon: Receipt },
-    { href: '/admin/invoices', label: 'Payments', icon: CreditCard },
+    { href: '/admin/receipts', label: 'Bank transactions', icon: Landmark },
     { href: '/admin/expenses', label: 'Expenses', icon: Wallet },
     { href: '/admin/analytics', label: 'Reports', icon: BarChart3 },
     { href: '/admin/settings', label: 'Settings', icon: Settings },

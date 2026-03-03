@@ -2,6 +2,7 @@ import express from 'express';
 import Order from '../models/Order';
 import OrderItem from '../models/OrderItem';
 import POSSale from '../models/POSSale';
+import Invoice from '../models/Invoice';
 import Product from '../models/Product';
 import PurchaseOrder from '../models/PurchaseOrder';
 import Customer from '../models/Customer';
@@ -19,7 +20,7 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    // Paid orders in period
+    // Paid website orders in period
     const orders = await Order.find({
       created_at: { $gte: startDate },
       payment_status: 'paid',
@@ -27,12 +28,20 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
 
     const onlineRevenue = orders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
 
+    // POS sales in period
     const posSales = await POSSale.find({
       created_at: { $gte: startDate },
     }).lean();
 
     const offlineRevenue = posSales.reduce((sum, sale) => sum + (sale.total_amount || 0), 0);
-    const totalSales = Number(onlineRevenue) + Number(offlineRevenue);
+
+    // Manual invoices in period (admin portal)
+    const invoices = await Invoice.find({
+      created_at: { $gte: startDate },
+    }).lean();
+    const invoiceRevenue = invoices.reduce((sum, inv: any) => sum + (inv.total_amount || 0), 0);
+
+    const totalSales = Number(onlineRevenue) + Number(offlineRevenue) + Number(invoiceRevenue);
 
     // Total purchases (POs)
     const pos_agg = await PurchaseOrder.aggregate([
@@ -43,26 +52,29 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
 
     const netProfit = totalSales - totalPurchases;
 
-    // Receivable: sum of customer outstanding_balance
-    const cust_agg = await Customer.aggregate([
-      { $match: { is_active: true } },
-      { $group: { _id: null, total: { $sum: '$outstanding_balance' } } },
-    ]);
-    const totalReceivable = Number(cust_agg[0]?.total || 0);
+    // Receivable: from invoices (total_amount - amount_paid for open invoices)
+    const totalReceivable = invoices.reduce((sum, inv: any) => {
+      const due = (inv.total_amount || 0) - (inv.amount_paid || 0);
+      return sum + (due > 0 ? due : 0);
+    }, 0);
 
-    // Payable: placeholder (could be PO balance or vendor balance)
-    const totalPayable = 0;
+    // Payable: total PO amount in period (simple approximation)
+    const totalPayable = Number(pos_agg[0]?.total || 0);
 
-    // Top sales location: by pickup_location
+    // Top sales location: by pickup_location (orders) + customer_address (invoices)
     const locMap = new Map<string, number>();
     orders.forEach((o: any) => {
       const loc = o.pickup_location || 'Unknown';
       locMap.set(loc, (locMap.get(loc) || 0) + (o.total_amount || 0));
     });
+    invoices.forEach((inv: any) => {
+      const loc = inv.customer_address || 'Unknown';
+      locMap.set(loc, (locMap.get(loc) || 0) + (inv.total_amount || 0));
+    });
     const topSalesLocation =
       Array.from(locMap.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
 
-    // Top selling item (category name from product)
+    // Top selling item: derive from website orders + manual invoices
     const orderItems = await OrderItem.find({
       order_id: { $in: orders.map((o: any) => o._id) },
     })
@@ -72,6 +84,12 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
     orderItems.forEach((item: any) => {
       const catName = item.product_id?.category_id?.name || 'Uncategorized';
       categoryRevenue.set(catName, (categoryRevenue.get(catName) || 0) + (item.subtotal || 0));
+    });
+    invoices.forEach((inv: any) => {
+      (inv.items || []).forEach((it: any) => {
+        const catName = it.category_name || 'Uncategorized';
+        categoryRevenue.set(catName, (categoryRevenue.get(catName) || 0) + (it.subtotal || 0));
+      });
     });
     const topSellingItem =
       Array.from(categoryRevenue.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
@@ -99,14 +117,18 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
       .map(([month, sales]) => ({ month, sales }));
 
     // Top 10 customers (by order total; we don't have customer_id on Order, use order count / total as proxy or leave from Receipts/Customer)
+    // Top 10 customers from manual invoices
     const top10Customers: Array<{ name: string; sales: number }> = [];
-    const orderTotals = orders.reduce((sum, o: any) => sum + (o.total_amount || 0), 0);
-    if (orders.length > 0) {
-      top10Customers.push({
-        name: 'Online Customers',
-        sales: Math.round(orderTotals),
-      });
-    }
+    const customerMap = new Map<string, number>();
+    invoices.forEach((inv: any) => {
+      const name = inv.customer_name || 'Customer';
+      customerMap.set(name, (customerMap.get(name) || 0) + (inv.total_amount || 0));
+    });
+    customerMap.forEach((value, name) => {
+      top10Customers.push({ name, sales: Math.round(value) });
+    });
+    top10Customers.sort((a, b) => b.sales - a.sales);
+    if (top10Customers.length > 10) top10Customers.splice(10);
 
     // Purchase by location (vendor state)
     const poList = await PurchaseOrder.find({ created_at: { $gte: startDate } })
@@ -162,6 +184,10 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
       const loc = o.pickup_location || 'Unknown';
       cityMap.set(loc, (cityMap.get(loc) || 0) + (o.total_amount || 0));
     });
+    invoices.forEach((inv: any) => {
+      const loc = inv.customer_address || 'Unknown';
+      cityMap.set(loc, (cityMap.get(loc) || 0) + (inv.total_amount || 0));
+    });
     const salesByCity = Array.from(cityMap.entries()).map(([name, value]) => ({
       name,
       size: Math.round(value),
@@ -186,6 +212,21 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
       existing.total_sold += item.quantity || 0;
       existing.revenue += item.subtotal || 0;
       productSales.set(productId, existing);
+    });
+    invoices.forEach((inv: any) => {
+      (inv.items || []).forEach((it: any) => {
+        if (!it.product_id) return;
+        const productId = String(it.product_id);
+        const existing = productSales.get(productId) || {
+          name: it.product_name || 'Product',
+          image_url: undefined,
+          total_sold: 0,
+          revenue: 0,
+        };
+        existing.total_sold += it.quantity || 0;
+        existing.revenue += it.subtotal || 0;
+        productSales.set(productId, existing);
+      });
     });
     for (const sale of posSales) {
       const items = (sale as any).items || [];
@@ -220,8 +261,8 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
 
     res.json({
       revenue: totalSales,
-      orders: orders.length,
-      onlineSales: Number(onlineRevenue),
+      orders: invoices.length,
+      onlineSales: Number(invoiceRevenue),
       offlineSales: Number(offlineRevenue),
       lowStockCount: Number(lowStockCount),
       topProducts: Array.isArray(topProducts) ? topProducts : [],

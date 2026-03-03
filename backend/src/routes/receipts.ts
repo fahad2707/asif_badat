@@ -9,10 +9,10 @@ function generateTrxId() {
   return 'RT' + Date.now().toString(36).toUpperCase().slice(-5) + Math.random().toString(36).substring(2, 5).toUpperCase();
 }
 
-// List receipts
+// List receipts (bank transactions)
 router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
   try {
-    const { search } = req.query;
+    const { search, bank_account_id } = req.query;
     let query: any = {};
     if (search && typeof search === 'string') {
       query.$or = [
@@ -21,7 +21,11 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
         { invoice_num: { $regex: search, $options: 'i' } },
       ];
     }
+    if (bank_account_id && typeof bank_account_id === 'string') {
+      query.bank_account_id = bank_account_id;
+    }
     const receipts = await Receipt.find(query)
+      .populate('bank_account_id', 'name')
       .sort({ trx_date: -1, created_at: -1 })
       .limit(500)
       .lean();
@@ -32,6 +36,8 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
         trx_id: r.trx_id,
         customer_id: r.customer_id?.toString(),
         customer_name: r.customer_name,
+        bank_account_id: r.bank_account_id?._id?.toString(),
+        bank_account_name: r.bank_account_id?.name,
         state: r.state,
         city: r.city,
         so_id: r.so_id,
@@ -50,13 +56,14 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
 // Create receipt
 router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
   try {
-    const { trx_date, trx_id, customer_id, customer_name, state, city, so_id, invoice_num, so_balance, pmt_mode, amount_received } = req.body;
+    const { trx_date, trx_id, customer_id, customer_name, bank_account_id, state, city, so_id, invoice_num, so_balance, pmt_mode, amount_received } = req.body;
     const finalTrxId = trx_id || generateTrxId();
     const receipt = await Receipt.create({
       trx_id: finalTrxId,
       trx_date: trx_date ? new Date(trx_date) : new Date(),
       customer_id: customer_id || null,
       customer_name: customer_name || '',
+      bank_account_id: bank_account_id || null,
       state: state || '',
       city: city || '',
       so_id: so_id || '',

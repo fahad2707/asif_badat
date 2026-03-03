@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "migrate": "tsx src/db/migrate.ts",
-    "seed": "tsx src/db/seed.ts"
+    "seed": "tsx src/db/seed.ts",
+    "clear-admin-data": "tsx src/db/clear-admin-data.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.490.0",

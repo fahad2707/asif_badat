@@ -16,17 +16,18 @@ async function seed() {
     await Category.deleteMany({});
     console.log('✅ Cleared categories and products!');
 
-    // Create default admin only
-    const existingAdmin = await Admin.findOne({ email: 'admin@expressdistributors.com' });
+    // Create default admin only (admin@edinc.com / Admin1234)
+    const defaultEmail = 'admin@edinc.com';
+    const existingAdmin = await Admin.findOne({ email: defaultEmail });
     if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash('admin123', 10);
+      const hashedPassword = await bcrypt.hash('Admin1234', 10);
       await Admin.create({
-        email: 'admin@expressdistributors.com',
+        email: defaultEmail,
         password_hash: hashedPassword,
-        name: 'Admin User',
+        name: 'Admin',
         role: 'admin',
       });
-      console.log('✅ Default admin created (email: admin@expressdistributors.com, password: admin123)');
+      console.log('✅ Default admin created (email: admin@edinc.com, password: Admin1234)');
     } else {
       console.log('✅ Admin already exists');
     }

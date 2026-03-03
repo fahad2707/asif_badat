@@ -1,9 +1,48 @@
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import Customer from '../models/Customer';
+import Invoice from '../models/Invoice';
 import { authenticateAdmin, AuthRequest } from '../middleware/auth';
 import { z } from 'zod';
 
 const router = express.Router();
+
+const uploadsDir = path.join(__dirname, '../../uploads/customers');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = (file.originalname && path.extname(file.originalname)) || '.bin';
+    const name = `${(req as any).params.id}-${Date.now()}${ext}`;
+    cb(null, name);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 15 * 1024 * 1024 } }); // 15MB
+
+async function generateCustomerCode(): Promise<string> {
+  for (let i = 0; i < 20; i++) {
+    const code = 'C' + String(Math.floor(100000 + Math.random() * 900000));
+    const exists = await Customer.findOne({ customer_code: code });
+    if (!exists) return code;
+  }
+  return 'C' + String(Date.now() % 1000000).padStart(6, '0');
+}
+
+// Generate customer ID (for forms)
+router.get('/generate-id', authenticateAdmin, async (_req, res) => {
+  try {
+    const customer_code = await generateCustomerCode();
+    res.json({ customer_code });
+  } catch (error) {
+    console.error('Generate customer code error:', error);
+    res.status(500).json({ error: 'Failed to generate' });
+  }
+});
 
 // List customers
 router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
@@ -26,11 +65,13 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
     res.json({
       customers: customers.map((c: any) => ({
         id: c._id.toString(),
+        customer_code: c.customer_code,
         name: c.name,
         company: c.company,
         phone: c.phone,
         email: c.email,
         address: c.address,
+        billing_address: c.billing_address,
         city: c.city,
         state: c.state,
         zip: c.zip,
@@ -38,6 +79,7 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
         payment_terms: c.payment_terms,
         credit_limit: c.credit_limit,
         notes: c.notes,
+        documents: c.documents || [],
         is_active: c.is_active,
         created_at: c.created_at,
       })),
@@ -49,6 +91,26 @@ router.get('/', authenticateAdmin, async (req: AuthRequest, res) => {
   }
 });
 
+// Open balances per customer (unpaid invoice balance)
+router.get('/balances', authenticateAdmin, async (_req, res) => {
+  try {
+    const balances = await Invoice.aggregate([
+      { $match: { payment_status: 'unpaid', customer_id: { $exists: true, $ne: null } } },
+      { $project: { customer_id: 1, balance: { $subtract: ['$total_amount', { $ifNull: ['$amount_paid', 0] }] } } },
+      { $group: { _id: '$customer_id', open_balance: { $sum: '$balance' } } },
+    ]);
+    res.json({
+      balances: balances.map((b: any) => ({
+        customer_id: b._id?.toString(),
+        open_balance: b.open_balance ?? 0,
+      })),
+    });
+  } catch (error) {
+    console.error('Customers balances error:', error);
+    res.status(500).json({ error: 'Failed to fetch balances' });
+  }
+});
+
 // Get one customer
 router.get('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
   try {
@@ -57,11 +119,13 @@ router.get('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
     const c = customer as any;
     res.json({
       id: c._id.toString(),
+      customer_code: c.customer_code,
       name: c.name,
       company: c.company,
       phone: c.phone,
       email: c.email,
       address: c.address,
+      billing_address: c.billing_address,
       city: c.city,
       state: c.state,
       zip: c.zip,
@@ -69,6 +133,7 @@ router.get('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
       payment_terms: c.payment_terms,
       credit_limit: c.credit_limit,
       notes: c.notes,
+      documents: c.documents || [],
       is_active: c.is_active,
       created_at: c.created_at,
     });
@@ -82,11 +147,13 @@ router.get('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
 router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
   try {
     const schema = z.object({
+      customer_code: z.string().optional(),
       name: z.string().min(1),
       company: z.string().optional(),
       phone: z.string().min(1),
-      email: z.string().email().optional(),
+      email: z.string().email().optional().or(z.literal('')),
       address: z.string().optional(),
+      billing_address: z.string().optional(),
       city: z.string().optional(),
       state: z.string().optional(),
       zip: z.string().optional(),
@@ -96,7 +163,10 @@ router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
       notes: z.string().optional(),
     });
     const data = schema.parse(req.body);
-    const customer = await Customer.create(data);
+    const createData: any = { ...data };
+    if (data.email === '') createData.email = undefined;
+    if (!createData.customer_code) createData.customer_code = await generateCustomerCode();
+    const customer = await Customer.create(createData);
     res.status(201).json({
       id: customer._id.toString(),
       ...customer.toObject(),
@@ -108,15 +178,35 @@ router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
   }
 });
 
+// Upload document for customer (PDF, JPG, etc.)
+router.post('/:id/documents', authenticateAdmin, upload.single('file'), async (req: AuthRequest, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    const doc = { name: req.file.originalname || req.file.filename, url: `/uploads/customers/${req.file.filename}` };
+    const docs = (customer as any).documents || [];
+    docs.push(doc);
+    (customer as any).documents = docs;
+    await customer.save();
+    res.json({ document: doc, documents: docs });
+  } catch (error) {
+    console.error('Upload customer document error:', error);
+    res.status(500).json({ error: 'Failed to upload' });
+  }
+});
+
 // Update customer
 router.put('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
   try {
     const schema = z.object({
+      customer_code: z.string().optional(),
       name: z.string().min(1).optional(),
       company: z.string().optional(),
       phone: z.string().optional(),
-      email: z.string().email().optional(),
+      email: z.string().email().optional().or(z.literal('')),
       address: z.string().optional(),
+      billing_address: z.string().optional(),
       city: z.string().optional(),
       state: z.string().optional(),
       zip: z.string().optional(),

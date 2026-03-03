@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Plus, Search, CheckCircle, XCircle, X, FileText } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
@@ -41,6 +42,7 @@ const REASONS = ['DAMAGED', 'RATE_DIFFERENCE', 'RETURN', 'SCHEME', 'OTHER'] as c
 const STATUS_OPTIONS = ['', 'DRAFT', 'APPROVED', 'ADJUSTED', 'CLOSED', 'CANCELLED'];
 
 export default function CreditMemosPage() {
+  const searchParams = useSearchParams();
   const [list, setList] = useState<CreditMemo[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -51,8 +53,11 @@ export default function CreditMemosPage() {
   const [detail, setDetail] = useState<CreditMemo | null>(null);
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
-  const [products, setProducts] = useState<{ id: string; name: string; sku?: string }[]>([]);
+  const [products, setProducts] = useState<{ id: string; name: string; sku?: string; price?: number }[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [showPdfModal, setShowPdfModal] = useState(false);
+  const [savedCreditMemoId, setSavedCreditMemoId] = useState<string | null>(null);
+  const emptyLine = (): { product_id: string; product_name: string; quantity: number; unit_price: number; tax_percent: number } => ({ product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_percent: 0 });
   const [form, setForm] = useState({
     type: 'CUSTOMER' as 'VENDOR' | 'CUSTOMER',
     vendor_id: '',
@@ -61,7 +66,7 @@ export default function CreditMemosPage() {
     affects_inventory: true,
     reference_invoice_id: '',
     notes: '',
-    items: [{ product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_percent: 0 }] as {
+    items: Array.from({ length: 15 }, emptyLine) as {
       product_id: string;
       product_name: string;
       quantity: number;
@@ -87,6 +92,15 @@ export default function CreditMemosPage() {
   useEffect(() => {
     fetchList();
   }, [typeFilter, statusFilter]);
+
+  useEffect(() => {
+    const newParam = searchParams?.get('new');
+    const customerId = searchParams?.get('customer_id');
+    if (newParam === '1' && customerId) {
+      setForm((f) => ({ ...f, type: 'CUSTOMER', customer_id: customerId }));
+      setShowModal(true);
+    }
+  }, [searchParams]);
 
   const fetchDetail = async (id: string) => {
     try {
@@ -128,33 +142,36 @@ export default function CreditMemosPage() {
       affects_inventory: true,
       reference_invoice_id: '',
       notes: '',
-      items: [{ product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_percent: 0 }],
+      items: Array.from({ length: 15 }, emptyLine),
     });
     setShowModal(true);
   };
 
   const addLine = () => {
-    setForm((f) => ({
-      ...f,
-      items: [...f.items, { product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_percent: 0 }],
-    }));
+    setForm((f) => ({ ...f, items: [...f.items, emptyLine()] }));
   };
 
   const updateLine = (index: number, field: string, value: string | number) => {
     setForm((f) => {
       const items = [...f.items];
+      if (!items[index]) return f;
       (items[index] as any)[field] = value;
       if (field === 'product_id') {
         const p = products.find((x) => x.id === value);
-        if (p) items[index].product_name = p.name;
+        if (p) {
+          items[index].product_name = p.name;
+          items[index].unit_price = p.price ?? 0;
+        }
       }
       return { ...f, items };
     });
   };
 
   const removeLine = (index: number) => {
-    if (form.items.length <= 1) return;
-    setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== index) }));
+    setForm((f) => {
+      const next = f.items.filter((_, i) => i !== index);
+      return { ...f, items: next.length ? next : [emptyLine()] };
+    });
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -190,9 +207,11 @@ export default function CreditMemosPage() {
           tax_percent: Number(i.tax_percent) || 0,
         })),
       };
-      await adminApi.post('/credit-memos', payload);
+      const res = await adminApi.post('/credit-memos', payload);
       toast.success('Credit memo created');
       setShowModal(false);
+      setSavedCreditMemoId(res.data?.id ?? null);
+      setShowPdfModal(true);
       fetchList();
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to create');
@@ -233,53 +252,56 @@ export default function CreditMemosPage() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900">Credit Memos</h1>
-      <p className="text-gray-600 mt-1">Vendor and customer credit memos — returns, rate difference, damage, scheme</p>
-
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={openNew}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]"
-        >
-          <Plus className="w-4 h-4" />
-          New Credit Memo
-        </button>
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        >
-          <option value="">All types</option>
-          <option value="VENDOR">Vendor</option>
-          <option value="CUSTOMER">Customer</option>
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        >
-          <option value="">All statuses</option>
-          {STATUS_OPTIONS.filter(Boolean).map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          placeholder="Search number, vendor, customer..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-56"
-        />
-        <button
-          type="button"
-          onClick={() => fetchList()}
-          className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-white text-sm font-medium bg-[#0f766e]"
-        >
-          <Search className="w-4 h-4" />
-          Refresh
-        </button>
+      <div className="bg-white rounded-xl shadow-md p-4 mt-4 mb-6 flex flex-wrap items-center gap-4">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search credit memos by number, vendor, customer..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-[#0f766e]"
+          />
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={openNew}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]"
+          >
+            <Plus className="w-4 h-4" />
+            New Credit Memo
+          </button>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="">All types</option>
+            <option value="VENDOR">Vendor</option>
+            <option value="CUSTOMER">Customer</option>
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="">All statuses</option>
+            {STATUS_OPTIONS.filter(Boolean).map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => fetchList()}
+            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-white text-sm font-medium bg-[#0f766e]"
+          >
+            <Search className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="mt-6 bg-white rounded-xl shadow overflow-hidden border border-gray-200">
@@ -519,52 +541,104 @@ export default function CreditMemosPage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-sm font-medium text-gray-700">Line items *</label>
-                  <button type="button" onClick={addLine} className="text-sm text-[#0f766e] hover:underline">+ Add line</button>
                 </div>
-                <div className="space-y-2">
-                  {form.items.map((line, idx) => (
-                    <div key={idx} className="flex gap-2 items-center flex-wrap">
-                      <select
-                        value={line.product_id}
-                        onChange={(e) => updateLine(idx, 'product_id', e.target.value)}
-                        className="flex-1 min-w-[140px] border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
-                      >
-                        <option value="">Product</option>
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        min={1}
-                        value={line.quantity}
-                        onChange={(e) => updateLine(idx, 'quantity', e.target.value)}
-                        className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
-                        placeholder="Qty"
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={line.unit_price}
-                        onChange={(e) => updateLine(idx, 'unit_price', e.target.value)}
-                        className="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
-                        placeholder="Price"
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={line.tax_percent}
-                        onChange={(e) => updateLine(idx, 'tax_percent', e.target.value)}
-                        className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
-                        placeholder="Tax%"
-                      />
-                      <button type="button" onClick={() => removeLine(idx)} className="p-1.5 text-red-600 hover:bg-red-50 rounded">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+                <div className="border border-gray-200 rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm min-w-[640px]">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left py-3 px-3">#</th>
+                        <th className="text-left py-3 px-3">Product</th>
+                        <th className="text-right py-3 px-3">Qty</th>
+                        <th className="text-right py-3 px-3">Unit price</th>
+                        <th className="text-right py-3 px-3">Tax %</th>
+                        <th className="text-right py-3 px-3">Amount</th>
+                        <th className="w-10" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {form.items.map((line, idx) => {
+                        const qty = Number(line.quantity) || 0;
+                        const price = Number(line.unit_price) || 0;
+                        const lineTotal = qty * price;
+                        return (
+                          <tr key={idx} className="border-t border-gray-100 hover:bg-gray-50/60">
+                            <td className="py-2 px-3 text-xs text-gray-500">{idx + 1}</td>
+                            <td className="py-2 px-3">
+                              <select
+                                value={line.product_id}
+                                onChange={(e) => updateLine(idx, 'product_id', e.target.value)}
+                                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
+                              >
+                                <option value="">Select product</option>
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <input
+                                type="number"
+                                min={1}
+                                value={line.quantity}
+                                onChange={(e) => updateLine(idx, 'quantity', e.target.value)}
+                                className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={line.unit_price}
+                                onChange={(e) => updateLine(idx, 'unit_price', e.target.value)}
+                                className="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={line.tax_percent}
+                                onChange={(e) => updateLine(idx, 'tax_percent', e.target.value)}
+                                className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-right font-medium">${lineTotal.toFixed(2)}</td>
+                            <td className="py-2 px-3">
+                              <button type="button" onClick={() => removeLine(idx)} className="p-1.5 text-red-600 hover:bg-red-50 rounded">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="text-sm text-gray-700">
+                    {(() => {
+                      const subtotal = form.items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0);
+                      const tax = form.items.reduce((s, i) => {
+                        const qty = Number(i.quantity) || 0;
+                        const price = Number(i.unit_price) || 0;
+                        const rate = Number(i.tax_percent) || 0;
+                        return s + qty * price * (rate / 100);
+                      }, 0);
+                      const total = subtotal + tax;
+                      return (
+                        <>
+                          <span className="mr-4">Subtotal: <span className="font-semibold">${subtotal.toFixed(2)}</span></span>
+                          <span className="mr-4">Tax: <span className="font-semibold">${tax.toFixed(2)}</span></span>
+                          <span>Total: <span className="font-semibold">${total.toFixed(2)}</span></span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <button type="button" onClick={addLine} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                    + Add line
+                  </button>
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-4 border-t">
@@ -584,6 +658,66 @@ export default function CreditMemosPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showPdfModal && savedCreditMemoId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Credit memo saved</h3>
+            <p className="text-gray-600 text-sm mb-4">Download or print the PDF.</p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await adminApi.get(`/credit-memos/${savedCreditMemoId}/pdf`, { responseType: 'blob' });
+                    const url = window.URL.createObjectURL(new Blob([res.data]));
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `credit-memo-${savedCreditMemoId}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+                    toast.success('PDF downloaded');
+                  } catch {
+                    toast.error('Failed to download PDF');
+                  }
+                }}
+                className="w-full px-4 py-2.5 rounded-lg font-medium bg-[#0f766e] text-white hover:bg-[#0d6b63]"
+              >
+                Download PDF
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await adminApi.get(`/credit-memos/${savedCreditMemoId}/pdf`, { responseType: 'blob' });
+                    const url = window.URL.createObjectURL(new Blob([res.data]));
+                    const w = window.open(url, '_blank');
+                    if (w) w.onload = () => w.print();
+                    toast.success('Opening print dialog');
+                  } catch {
+                    toast.error('Failed to open PDF for printing');
+                  }
+                }}
+                className="w-full px-4 py-2.5 rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Print PDF
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPdfModal(false);
+                  setSavedCreditMemoId(null);
+                }}
+                className="w-full px-4 py-2.5 rounded-lg font-medium text-gray-600 hover:bg-gray-100"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus, Edit, Search, Trash2, X, MapPin, FolderPlus } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
@@ -10,6 +11,7 @@ interface Vendor {
   supplier_id?: string;
   name: string;
   contact_name?: string;
+  company_name?: string;
   phone?: string;
   email?: string;
   address?: string;
@@ -21,11 +23,14 @@ interface Vendor {
   purchases?: number;
   payments?: number;
   balance?: number;
+  open_balance?: number;
+  paid_balance?: number;
 }
 
 const TEAL = '#0f766e';
 
 export default function VendorsPage() {
+  const router = useRouter();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -149,55 +154,60 @@ export default function VendorsPage() {
     }
   };
 
+  const totalPurchases = vendors.reduce((s, v) => s + (v.purchases ?? 0), 0);
+  const totalOpen = vendors.reduce((s, v) => s + (v.open_balance ?? v.balance ?? 0), 0);
+  const totalPaid = vendors.reduce((s, v) => s + (v.paid_balance ?? v.payments ?? 0), 0);
+  const suppliersWithBalance = vendors.filter((v) => (v.open_balance ?? v.balance ?? 0) > 0).length;
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900">Suppliers</h1>
-      <p className="text-gray-600 mt-1">Add and manage your suppliers</p>
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl shadow border border-gray-200 p-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Unbilled & purchases</p>
+          <p className="text-2xl font-bold text-gray-900">${totalPurchases.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 mt-1">Total purchase orders with this supplier list.</p>
+        </div>
+        <div className="bg-white rounded-xl shadow border border-gray-200 p-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Open payables</p>
+          <p className="text-2xl font-bold text-amber-700">${totalOpen.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 mt-1">{suppliersWithBalance} supplier(s) with outstanding balance.</p>
+        </div>
+        <div className="bg-white rounded-xl shadow border border-gray-200 p-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Amount paid (lifetime)</p>
+          <p className="text-2xl font-bold text-emerald-700">${totalPaid.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 mt-1">Based on purchase orders minus open balance.</p>
+        </div>
+      </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(null);
-            setForm({ supplier_id: '', name: '', contact_name: '', phone: '', email: '', address: '', city: '', state: '', zip: '', payment_terms: '', notes: '' });
-            setShowModal(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]"
-        >
-          <Plus className="w-4 h-4" />
-          New Supplier
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-blue-600 border border-blue-300 bg-blue-50 hover:bg-blue-100 font-medium"
-        >
-          <MapPin className="w-4 h-4" />
-          New State
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-blue-600 border border-blue-300 bg-blue-50 hover:bg-blue-100 font-medium"
-        >
-          <FolderPlus className="w-4 h-4" />
-          New City
-        </button>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          <option value="All">All</option>
-        </select>
-        <input
-          type="text"
-          placeholder="Search..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-48"
-        />
-        <button type="button" onClick={() => fetchVendors()} className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-white text-sm font-medium bg-[#0f766e]">
-          <Search className="w-4 h-4" />
-          Search
-        </button>
-        <button type="button" onClick={() => setSearch('')} className="px-3 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50">
-          Clear
-        </button>
+      <div className="bg-white rounded-xl shadow-md p-4 mt-6 mb-6 flex flex-wrap items-center gap-4">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search suppliers by name, company, phone..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-[#0f766e]"
+          />
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null);
+              setForm({ supplier_id: '', name: '', contact_name: '', phone: '', email: '', address: '', city: '', state: '', zip: '', payment_terms: '', notes: '' });
+              setShowModal(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]"
+          >
+            <Plus className="w-4 h-4" />
+            New Supplier
+          </button>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="All">All</option>
+          </select>
+        </div>
       </div>
 
       <div className="mt-6 bg-white rounded-xl shadow overflow-hidden border border-gray-200">
@@ -211,15 +221,10 @@ export default function VendorsPage() {
               <thead>
                 <tr className="bg-[#0f766e] text-white">
                   <th className="text-left py-3 px-4 text-sm font-medium">Supplier ID</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium">Supplier Name</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium">Contact</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium">Email</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium">State</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium">City</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium">Address</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium">Purchases</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium">Payments</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium">Balance</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium">Supplier name</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium">Company</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium">Open balance</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium">Paid</th>
                   <th className="text-right py-3 px-4 text-sm font-medium">Actions</th>
                 </tr>
               </thead>
@@ -232,22 +237,35 @@ export default function VendorsPage() {
                   </tr>
                 ) : (
                   vendors.map((v, i) => (
-                    <tr key={v.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <tr
+                      key={v.id}
+                      className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-teal-50 cursor-pointer`}
+                      onClick={() => router.push(`/admin/vendors/${v.id}`)}
+                    >
                       <td className="py-2 px-4 text-sm">{v.supplier_id || '—'}</td>
-                      <td className="py-2 px-4 text-sm font-medium text-gray-900">{v.name}</td>
-                      <td className="py-2 px-4 text-sm">{v.phone || v.contact_name || '—'}</td>
-                      <td className="py-2 px-4 text-sm">{v.email || '—'}</td>
-                      <td className="py-2 px-4 text-sm">{v.state || '—'}</td>
-                      <td className="py-2 px-4 text-sm">{v.city || '—'}</td>
-                      <td className="py-2 px-4 text-sm max-w-[200px] truncate">{v.address || '—'}</td>
-                      <td className="py-2 px-4 text-sm text-right">{Number(v.purchases ?? 0).toLocaleString()}</td>
-                      <td className="py-2 px-4 text-sm text-right">{Number(v.payments ?? 0).toLocaleString()}</td>
-                      <td className="py-2 px-4 text-sm text-right">{Number(v.balance ?? 0).toLocaleString()}</td>
+                      <td className="py-2 px-4 text-sm font-medium text-gray-900">{v.contact_name || v.name}</td>
+                      <td className="py-2 px-4 text-sm text-gray-700">{v.name}</td>
+                      <td className="py-2 px-4 text-sm text-right">${Number(v.open_balance ?? v.balance ?? 0).toFixed(2)}</td>
+                      <td className="py-2 px-4 text-sm text-right">${Number(v.paid_balance ?? v.payments ?? 0).toFixed(2)}</td>
                       <td className="py-2 px-4 text-right">
-                        <button type="button" onClick={() => openEdit(v)} className="text-[#0f766e] hover:underline text-sm font-medium mr-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(v);
+                          }}
+                          className="text-[#0f766e] hover:underline text-sm font-medium mr-2"
+                        >
                           Edit
                         </button>
-                        <button type="button" onClick={() => handleDelete(v.id)} className="text-red-600 hover:underline text-sm">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(v.id);
+                          }}
+                          className="text-red-600 hover:underline text-sm"
+                        >
                           Delete
                         </button>
                       </td>
@@ -281,7 +299,11 @@ export default function VendorsPage() {
                   />
                 </div>
                 <div className="pt-7">
-                  <button type="button" onClick={generateId} className="px-3 py-2 rounded-lg text-white text-sm font-medium bg-blue-600 hover:bg-blue-700">
+                  <button
+                    type="button"
+                    onClick={generateId}
+                    className="px-3 py-2 rounded-lg text-sm font-medium border border-[#0f766e] text-[#0f766e] bg-white hover:bg-teal-50"
+                  >
                     Generate
                   </button>
                 </div>

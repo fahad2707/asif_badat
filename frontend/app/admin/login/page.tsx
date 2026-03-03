@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import api from '@/lib/api';
+import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 
 export default function AdminLoginPage() {
@@ -16,7 +16,7 @@ export default function AdminLoginPage() {
     setLoading(true);
 
     try {
-      const response = await api.post('/auth/admin/login', { email, password });
+      const response = await adminApi.post('/auth/admin/login', { email, password });
       localStorage.setItem('adminToken', response.data.token);
       toast.success('Login successful!');
       router.push('/admin/dashboard');

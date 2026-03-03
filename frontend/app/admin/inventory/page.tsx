@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Package, Plus, Search, Edit, Trash2, X, Tag, FolderPlus, Layers } from 'lucide-react';
+import { Package, Plus, Search, Edit, Trash2, X } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 
@@ -39,6 +40,10 @@ export default function InventoryPage() {
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubcategoryModal, setShowSubcategoryModal] = useState(false);
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [adjustProductId, setAdjustProductId] = useState('');
+  const [adjustQty, setAdjustQty] = useState('');
+  const [movementSummary, setMovementSummary] = useState<Record<string, { in: number; out: number }>>({});
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   const [form, setForm] = useState({
     item_id: '',
@@ -71,6 +76,15 @@ export default function InventoryPage() {
     }
   };
 
+  const fetchMovementSummary = async () => {
+    try {
+      const res = await adminApi.get('/inventory/summary');
+      setMovementSummary(res.data.summary || {});
+    } catch {
+      setMovementSummary({});
+    }
+  };
+
   const fetchCategories = async () => {
     try {
       const res = await adminApi.get('/categories');
@@ -90,7 +104,11 @@ export default function InventoryPage() {
   };
 
   useEffect(() => {
-    fetchProducts();
+    (async () => {
+      setLoading(true);
+      await Promise.all([fetchProducts(), fetchMovementSummary()]);
+      setLoading(false);
+    })();
   }, []);
 
   useEffect(() => {
@@ -176,50 +194,45 @@ export default function InventoryPage() {
     }
   };
 
-  const qtyPurchased = 0; // placeholder
-  const qtySold = 0; // placeholder
-
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900">Inventory Items</h1>
-      <p className="text-gray-600 mt-1">Add and manage your inventory items.</p>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(null);
-            setForm({ item_id: '', item_type: '', item_category: '', item_subcategory: '', item_name: '', reorder_level: '10' });
-            setShowItemModal(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]"
-        >
-          <Plus className="w-4 h-4" />
-          Add Inventory Item
-        </button>
-        <button type="button" onClick={() => setShowTypeModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-blue-600 border border-blue-300 bg-blue-50 hover:bg-blue-100 font-medium">
-          <Tag className="w-4 h-4" />
-          Add Item Type
-        </button>
-        <button type="button" onClick={() => setShowCategoryModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-blue-600 border border-blue-300 bg-blue-50 hover:bg-blue-100 font-medium">
-          <FolderPlus className="w-4 h-4" />
-          Add Item Category
-        </button>
-        <button type="button" onClick={() => setShowSubcategoryModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-blue-600 border border-blue-300 bg-blue-50 hover:bg-blue-100 font-medium">
-          <Layers className="w-4 h-4" />
-          Add Item Subcategory
-        </button>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          <option value="All">All</option>
-        </select>
-        <input type="text" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-48" />
-        <button type="button" onClick={() => fetchProducts()} className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-white text-sm font-medium bg-[#0f766e]">
-          <Search className="w-4 h-4" />
-          Search
-        </button>
-        <button type="button" onClick={() => setSearch('')} className="px-3 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50">
-          Clear
-        </button>
+      <div className="bg-white rounded-xl shadow-md p-4 mt-4 mb-6 flex flex-wrap items-center gap-4">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by name or SKU..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-[#0f766e]"
+          />
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Link
+            href="/admin/products/new"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]"
+          >
+            <Plus className="w-4 h-4" />
+            Add new product
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              setAdjustProductId('');
+              setAdjustQty('');
+              setShowAdjustModal(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[#0f766e] border border-[#0f766e] bg-white hover:bg-teal-50 font-medium"
+          >
+            <Package className="w-4 h-4" />
+            Stock qty adjustment
+          </button>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="All">All</option>
+          </select>
+        </div>
       </div>
 
       <div className="mt-6 bg-white rounded-xl shadow overflow-hidden border border-gray-200">
@@ -233,7 +246,6 @@ export default function InventoryPage() {
               <thead>
                 <tr className="bg-[#0f766e] text-white">
                   <th className="text-left py-3 px-4 text-sm font-medium">Item ID</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium">Item Type</th>
                   <th className="text-left py-3 px-4 text-sm font-medium">Item Category</th>
                   <th className="text-left py-3 px-4 text-sm font-medium">Item Subcategory</th>
                   <th className="text-left py-3 px-4 text-sm font-medium">Item Name</th>
@@ -259,11 +271,14 @@ export default function InventoryPage() {
                       <tr key={p.id} className={i % 2 === 0 ? (reorderRequired ? 'bg-red-50' : 'bg-white') : (reorderRequired ? 'bg-red-50/70' : 'bg-gray-50')}>
                         <td className="py-2 px-4 text-sm font-mono">{p.sku || p.id.slice(-6)}</td>
                         <td className="py-2 px-4 text-sm">{p.category_name || '—'}</td>
-                        <td className="py-2 px-4 text-sm">{p.category_name || '—'}</td>
                         <td className="py-2 px-4 text-sm">{p.sub_category_name || '—'}</td>
                         <td className="py-2 px-4 text-sm font-medium text-gray-900">{p.name}</td>
-                        <td className="py-2 px-4 text-sm text-right">{qtyPurchased}</td>
-                        <td className="py-2 px-4 text-sm text-right">{qtySold}</td>
+                        <td className="py-2 px-4 text-sm text-right">
+                          {movementSummary[p.id]?.in != null ? movementSummary[p.id].in : '—'}
+                        </td>
+                        <td className="py-2 px-4 text-sm text-right">
+                          {movementSummary[p.id]?.out != null ? movementSummary[p.id].out : '—'}
+                        </td>
                         <td className="py-2 px-4 text-sm text-right font-medium">{p.stock_quantity}</td>
                         <td className="py-2 px-4 text-sm text-right">{p.low_stock_threshold ?? 10}</td>
                         <td className="py-2 px-4 text-sm">{reorderRequired ? 'Yes' : 'No'}</td>
@@ -284,6 +299,84 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
+
+      {showAdjustModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-bold text-gray-900">Adjust stock quantity</h2>
+              <button type="button" onClick={() => setShowAdjustModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!adjustProductId) {
+                  toast.error('Select a product');
+                  return;
+                }
+                const change = Number(adjustQty);
+                if (!change || Number.isNaN(change)) {
+                  toast.error('Enter a quantity to adjust');
+                  return;
+                }
+                try {
+                  await adminApi.post('/inventory/adjust', {
+                    product_id: adjustProductId,
+                    quantity_change: change,
+                  });
+                  toast.success('Stock adjusted');
+                  setShowAdjustModal(false);
+                  setAdjustProductId('');
+                  setAdjustQty('');
+                  fetchProducts();
+                } catch (err: any) {
+                  toast.error(err.response?.data?.error || 'Failed to adjust stock');
+                }
+              }}
+              className="p-4 space-y-4"
+            >
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
+                <select
+                  value={adjustProductId}
+                  onChange={(e) => setAdjustProductId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">Select product (scan ID/SKU in Products if needed)</option>
+                  {items.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.sku ? `(${p.sku})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Adjustment quantity</label>
+                <input
+                  type="number"
+                  value={adjustQty}
+                  onChange={(e) => setAdjustQty(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="e.g. 10 to add, -5 to remove"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Positive number adds stock, negative number removes stock. Resulting stock cannot be negative.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button type="button" onClick={() => setShowAdjustModal(false)} className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button type="submit" className="px-4 py-2 rounded-lg bg-[#0f766e] text-white font-medium hover:bg-[#0d5d57]">
+                  Save adjustment
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

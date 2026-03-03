@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { FolderTree, Layers, Percent, Plus, Edit, Trash2, X, FileDown, Package } from 'lucide-react';
+import { FolderTree, Layers, Percent, CreditCard, Landmark, Plus, Edit, Trash2, X, FileDown, Package } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 
-type TabId = 'categories' | 'subcategories' | 'tax';
+type TabId = 'categories' | 'subcategories' | 'tax' | 'payment' | 'bank';
 
 interface Category {
   id: string;
@@ -28,6 +28,19 @@ interface TaxType {
   id: string;
   name: string;
   rate: number;
+  rate_type?: string;
+}
+
+interface PaymentMethod {
+  id: string;
+  name: string;
+  display_order?: number;
+}
+
+interface BankAccount {
+  id: string;
+  name: string;
+  account_number?: string;
 }
 
 interface Product {
@@ -43,6 +56,8 @@ const TABS: { id: TabId; label: string; icon: typeof FolderTree }[] = [
   { id: 'categories', label: 'Categories', icon: FolderTree },
   { id: 'subcategories', label: 'Subcategories', icon: Layers },
   { id: 'tax', label: 'Tax types', icon: Percent },
+  { id: 'payment', label: 'Payment methods', icon: CreditCard },
+  { id: 'bank', label: 'Bank accounts', icon: Landmark },
 ];
 
 function downloadCSV(filename: string, rows: string[][]) {
@@ -60,6 +75,8 @@ export default function CatalogPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<SubCategory[]>([]);
   const [taxTypes, setTaxTypes] = useState<TaxType[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ type: TabId; edit?: any } | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
@@ -68,6 +85,8 @@ export default function CatalogPage() {
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(new Set());
   const [selectedSubcategoryIds, setSelectedSubcategoryIds] = useState<Set<string>>(new Set());
   const [selectedTaxIds, setSelectedTaxIds] = useState<Set<string>>(new Set());
+  const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());
+  const [selectedBankIds, setSelectedBankIds] = useState<Set<string>>(new Set());
 
   // Single selection to show products panel
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -106,9 +125,27 @@ export default function CatalogPage() {
     }
   };
 
+  const fetchPaymentMethods = async () => {
+    try {
+      const res = await adminApi.get('/payment-methods');
+      setPaymentMethods(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setPaymentMethods([]);
+    }
+  };
+
+  const fetchBankAccounts = async () => {
+    try {
+      const res = await adminApi.get('/bank-accounts/admin');
+      setBankAccounts(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setBankAccounts([]);
+    }
+  };
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([fetchCategories(), fetchSubcategories(), fetchTaxTypes()]);
+    await Promise.all([fetchCategories(), fetchSubcategories(), fetchTaxTypes(), fetchPaymentMethods(), fetchBankAccounts()]);
     setLoading(false);
   }, []);
 
@@ -170,7 +207,9 @@ export default function CatalogPage() {
   const openAdd = (type: TabId) => {
     if (type === 'categories') setForm({ name: '', description: '', display_order: 0 });
     if (type === 'subcategories') setForm({ name: '', category_id: categories[0]?.id || '', display_order: 0 });
-    if (type === 'tax') setForm({ name: '', rate: 0 });
+    if (type === 'tax') setForm({ name: '', rate: 0, rate_type: 'percent' });
+    if (type === 'payment') setForm({ name: '', display_order: 0 });
+    if (type === 'bank') setForm({ name: '', account_number: '' });
     setModal({ type });
   };
 
@@ -193,8 +232,16 @@ export default function CatalogPage() {
         else await adminApi.post('/sub-categories', { name: form.name, category_id: form.category_id, display_order: form.display_order ?? 0 });
       }
       if (type === 'tax') {
-        if (edit) await adminApi.put(`/tax-types/${edit.id}`, { name: form.name, rate: form.rate });
-        else await adminApi.post('/tax-types', { name: form.name, rate: form.rate });
+        if (edit) await adminApi.put(`/tax-types/${edit.id}`, { name: form.name, rate: form.rate, rate_type: form.rate_type || 'percent' });
+        else await adminApi.post('/tax-types', { name: form.name, rate: form.rate, rate_type: form.rate_type || 'percent' });
+      }
+      if (type === 'payment') {
+        if (edit) await adminApi.put(`/payment-methods/${edit.id}`, { name: form.name, display_order: form.display_order });
+        else await adminApi.post('/payment-methods', { name: form.name, display_order: form.display_order ?? 0 });
+      }
+      if (type === 'bank') {
+        if (edit) await adminApi.put(`/bank-accounts/${edit.id}`, { name: form.name, account_number: form.account_number });
+        else await adminApi.post('/bank-accounts', { name: form.name, account_number: form.account_number || undefined });
       }
       toast.success(edit ? 'Updated' : 'Created');
       setModal(null);
@@ -212,6 +259,8 @@ export default function CatalogPage() {
       if (type === 'categories') await adminApi.delete(`/categories/${id}`);
       if (type === 'subcategories') await adminApi.delete(`/sub-categories/${id}`);
       if (type === 'tax') await adminApi.delete(`/tax-types/${id}`);
+      if (type === 'payment') await adminApi.delete(`/payment-methods/${id}`);
+      if (type === 'bank') await adminApi.delete(`/bank-accounts/${id}`);
       toast.success('Deleted');
       fetchAll();
       if (type === 'categories' && selectedCategoryId === id) setSelectedCategoryId(null);
@@ -261,6 +310,34 @@ export default function CatalogPage() {
   const selectAllTax = () => {
     if (selectedTaxIds.size === taxTypes.length) setSelectedTaxIds(new Set());
     else setSelectedTaxIds(new Set(taxTypes.map((t) => t.id)));
+  };
+
+  const togglePaymentSelect = (id: string) => {
+    setSelectedPaymentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllPayment = () => {
+    if (selectedPaymentIds.size === paymentMethods.length) setSelectedPaymentIds(new Set());
+    else setSelectedPaymentIds(new Set(paymentMethods.map((p) => p.id)));
+  };
+
+  const toggleBankSelect = (id: string) => {
+    setSelectedBankIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllBank = () => {
+    if (selectedBankIds.size === bankAccounts.length) setSelectedBankIds(new Set());
+    else setSelectedBankIds(new Set(bankAccounts.map((b) => b.id)));
   };
 
   const handleBulkDeleteCategories = async () => {
@@ -329,8 +406,54 @@ export default function CatalogPage() {
 
   const handleExportTaxCSV = () => {
     const toExport = selectedTaxIds.size > 0 ? taxTypes.filter((t) => selectedTaxIds.has(t.id)) : taxTypes;
-    const rows = [['Name', 'Rate %'], ...toExport.map((t) => [t.name, String(t.rate)])];
+    const rows = [['Name', 'Rate type', 'Rate'], ...toExport.map((t) => [t.name, t.rate_type === 'amount' ? 'USD' : '%', String(t.rate)])];
     downloadCSV(`tax-types-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    toast.success('CSV downloaded');
+  };
+
+  const handleBulkDeletePayment = async () => {
+    if (selectedPaymentIds.size === 0) {
+      toast.error('Select at least one payment method');
+      return;
+    }
+    if (!confirm(`Delete ${selectedPaymentIds.size} selected payment method(s)?`)) return;
+    try {
+      for (const id of selectedPaymentIds) await adminApi.delete(`/payment-methods/${id}`);
+      toast.success('Payment methods deleted');
+      setSelectedPaymentIds(new Set());
+      fetchAll();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to delete');
+    }
+  };
+
+  const handleExportPaymentCSV = () => {
+    const toExport = selectedPaymentIds.size > 0 ? paymentMethods.filter((p) => selectedPaymentIds.has(p.id)) : paymentMethods;
+    const rows = [['Name', 'Display order'], ...toExport.map((p) => [p.name, String(p.display_order ?? 0)])];
+    downloadCSV(`payment-methods-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    toast.success('CSV downloaded');
+  };
+
+  const handleBulkDeleteBank = async () => {
+    if (selectedBankIds.size === 0) {
+      toast.error('Select at least one bank account');
+      return;
+    }
+    if (!confirm(`Delete ${selectedBankIds.size} selected bank account(s)?`)) return;
+    try {
+      for (const id of selectedBankIds) await adminApi.delete(`/bank-accounts/${id}`);
+      toast.success('Bank accounts deleted');
+      setSelectedBankIds(new Set());
+      fetchAll();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to delete');
+    }
+  };
+
+  const handleExportBankCSV = () => {
+    const toExport = selectedBankIds.size > 0 ? bankAccounts.filter((b) => selectedBankIds.has(b.id)) : bankAccounts;
+    const rows = [['Name', 'Account number'], ...toExport.map((b) => [b.name, b.account_number || ''])];
+    downloadCSV(`bank-accounts-${new Date().toISOString().slice(0, 10)}.csv`, rows);
     toast.success('CSV downloaded');
   };
 
@@ -567,7 +690,7 @@ export default function CatalogPage() {
                             <input type="checkbox" checked={selectedTaxIds.has(t.id)} onChange={() => toggleTaxSelect(t.id)} className="rounded border-gray-300 text-[#0f766e]" />
                           </td>
                           <td className="py-3 px-4 font-medium text-gray-900">{t.name}</td>
-                          <td className="py-3 px-4 text-right text-gray-600">{t.rate}%</td>
+                          <td className="py-3 px-4 text-right text-gray-600">{t.rate_type === 'amount' ? `$${Number(t.rate).toFixed(2)}` : `${t.rate}%`}</td>
                           <td className="py-3 px-4 text-right">
                             <button onClick={() => openEdit('tax', t)} className="p-2 text-[#0f766e] hover:bg-teal-50 rounded-lg mr-1" title="Edit">
                               <Edit className="w-4 h-4" />
@@ -582,6 +705,112 @@ export default function CatalogPage() {
                   </table>
                 </div>
                 {taxTypes.length === 0 && <p className="text-center py-8 text-gray-500">No tax types yet. Click &quot;Add tax type&quot; to create one.</p>}
+              </div>
+            )}
+
+            {activeTab === 'payment' && (
+              <div className="bg-white rounded-xl shadow border border-gray-200 p-6">
+                <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Payment methods</h2>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => openAdd('payment')} className="bg-[#0f766e] text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-[#0d5d57]">
+                      <Plus className="w-4 h-4" /> Add payment method
+                    </button>
+                    <button onClick={handleBulkDeletePayment} disabled={selectedPaymentIds.size === 0} className="px-4 py-2 rounded-lg font-medium border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                      Delete selected ({selectedPaymentIds.size})
+                    </button>
+                    <button onClick={handleExportPaymentCSV} className="px-4 py-2 rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1">
+                      <FileDown className="w-4 h-4" /> Export CSV
+                    </button>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">These payment methods appear when receiving payment on invoices. Add or edit methods here, then select them in Receive Payment.</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="w-10 py-3 px-4">
+                          <input type="checkbox" checked={paymentMethods.length > 0 && selectedPaymentIds.size === paymentMethods.length} onChange={selectAllPayment} className="rounded border-gray-300 text-[#0f766e]" />
+                        </th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Name</th>
+                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paymentMethods.map((p) => (
+                        <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-3 px-4">
+                            <input type="checkbox" checked={selectedPaymentIds.has(p.id)} onChange={() => togglePaymentSelect(p.id)} className="rounded border-gray-300 text-[#0f766e]" />
+                          </td>
+                          <td className="py-3 px-4 font-medium text-gray-900">{p.name}</td>
+                          <td className="py-3 px-4 text-right">
+                            <button onClick={() => openEdit('payment', p)} className="p-2 text-[#0f766e] hover:bg-teal-50 rounded-lg mr-1" title="Edit">
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => handleDelete('payment', p.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Delete">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {paymentMethods.length === 0 && <p className="text-center py-8 text-gray-500">No payment methods yet. Click &quot;Add payment method&quot; to create one (e.g. Cash, Card, Bank Transfer).</p>}
+              </div>
+            )}
+
+            {activeTab === 'bank' && (
+              <div className="bg-white rounded-xl shadow border border-gray-200 p-6">
+                <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Bank accounts</h2>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => openAdd('bank')} className="bg-[#0f766e] text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-[#0d5d57]">
+                      <Plus className="w-4 h-4" /> Add bank account
+                    </button>
+                    <button onClick={handleBulkDeleteBank} disabled={selectedBankIds.size === 0} className="px-4 py-2 rounded-lg font-medium border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                      Delete selected ({selectedBankIds.size})
+                    </button>
+                    <button onClick={handleExportBankCSV} className="px-4 py-2 rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1">
+                      <FileDown className="w-4 h-4" /> Export CSV
+                    </button>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">When you receive payment (cash or cheque), you can record which bank account the money is deposited in. Add your bank accounts here (e.g. Main Checking, Savings).</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="w-10 py-3 px-4">
+                          <input type="checkbox" checked={bankAccounts.length > 0 && selectedBankIds.size === bankAccounts.length} onChange={selectAllBank} className="rounded border-gray-300 text-[#0f766e]" />
+                        </th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Name</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Account number</th>
+                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bankAccounts.map((b) => (
+                        <tr key={b.id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-3 px-4">
+                            <input type="checkbox" checked={selectedBankIds.has(b.id)} onChange={() => toggleBankSelect(b.id)} className="rounded border-gray-300 text-[#0f766e]" />
+                          </td>
+                          <td className="py-3 px-4 font-medium text-gray-900">{b.name}</td>
+                          <td className="py-3 px-4 text-gray-600">{b.account_number || '—'}</td>
+                          <td className="py-3 px-4 text-right">
+                            <button onClick={() => openEdit('bank', b)} className="p-2 text-[#0f766e] hover:bg-teal-50 rounded-lg mr-1" title="Edit">
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => handleDelete('bank', b.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Delete">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {bankAccounts.length === 0 && <p className="text-center py-8 text-gray-500">No bank accounts yet. Click &quot;Add bank account&quot; to create one (e.g. your 2 bank accounts for depositing cash and cheque).</p>}
               </div>
             )}
           </div>
@@ -744,11 +973,42 @@ export default function CatalogPage() {
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-                    <input type="text" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-transparent" placeholder="e.g. GST 18%" required />
+                    <input type="text" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-transparent" placeholder="e.g. GST, VAT" required />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Rate % *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Rate type</label>
+                    <select value={form.rate_type || 'percent'} onChange={(e) => setForm({ ...form, rate_type: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-transparent">
+                      <option value="percent">Percentage (%)</option>
+                      <option value="amount">Fixed amount (USD)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{form.rate_type === 'amount' ? 'Amount (USD) *' : 'Rate % *'}</label>
                     <input type="number" min={0} step={0.01} value={form.rate ?? ''} onChange={(e) => setForm({ ...form, rate: parseFloat(e.target.value) || 0 })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-transparent" required />
+                  </div>
+                </>
+              )}
+              {modal.type === 'payment' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                    <input type="text" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-transparent" placeholder="e.g. Cash, Card, Bank Transfer" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Display order</label>
+                    <input type="number" min={0} value={form.display_order ?? 0} onChange={(e) => setForm({ ...form, display_order: parseInt(e.target.value, 10) || 0 })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-transparent" />
+                  </div>
+                </>
+              )}
+              {modal.type === 'bank' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bank account name *</label>
+                    <input type="text" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-transparent" placeholder="e.g. Main Checking, Savings" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Account number</label>
+                    <input type="text" value={form.account_number || ''} onChange={(e) => setForm({ ...form, account_number: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-transparent" placeholder="Optional" />
                   </div>
                 </>
               )}

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 export default function BillingPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace('/admin/pos');
+    router.replace('/admin/invoices');
   }, [router]);
   return (
     <div className="flex items-center justify-center min-h-[50vh]">

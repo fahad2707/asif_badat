@@ -36,12 +36,13 @@ adminApi.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors
+// Handle auth errors (don't redirect on 401 from admin login attempt - let the page show error)
 adminApi.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      if (typeof window !== 'undefined') {
+      const isLoginAttempt = error.config?.url?.includes('/auth/admin/login');
+      if (!isLoginAttempt && typeof window !== 'undefined') {
         localStorage.removeItem('adminToken');
         window.location.href = '/admin/login';
       }

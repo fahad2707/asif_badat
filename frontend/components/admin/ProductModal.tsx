@@ -141,8 +141,9 @@ function AddSubCategoryModal({ categoryId, categoryName, onClose, onSaved }: { c
   );
 }
 
-function AddTaxTypeModal({ onClose, onSaved }: { onClose: () => void; onSaved: (id: string, name: string, rate: number) => void }) {
+function AddTaxTypeModal({ onClose, onSaved }: { onClose: () => void; onSaved: (id: string, name: string, rate: number, rate_type: string) => void }) {
   const [name, setName] = useState('');
+  const [rateType, setRateType] = useState<'percent' | 'amount'>('percent');
   const [rate, setRate] = useState('');
   const [loading, setLoading] = useState(false);
   const handleSubmit = async (e: React.FormEvent) => {
@@ -152,8 +153,8 @@ function AddTaxTypeModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
     if (isNaN(r) || r < 0) return;
     setLoading(true);
     try {
-      const { data } = await adminApi.post('/tax-types', { name: name.trim(), rate: r });
-      onSaved(data.id, data.name, data.rate);
+      const { data } = await adminApi.post('/tax-types', { name: name.trim(), rate: r, rate_type: rateType });
+      onSaved(data.id, data.name, data.rate, data.rate_type || 'percent');
       onClose();
       toast.success('Tax type added');
     } catch (err: any) {
@@ -175,13 +176,17 @@ function AddTaxTypeModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
             className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3"
             autoFocus
           />
+          <select value={rateType} onChange={(e) => setRateType(e.target.value as 'percent' | 'amount')} className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3">
+            <option value="percent">Rate in %</option>
+            <option value="amount">Fixed amount (USD)</option>
+          </select>
           <input
             type="number"
             step="0.01"
             min="0"
             value={rate}
             onChange={(e) => setRate(e.target.value)}
-            placeholder="Rate %"
+            placeholder={rateType === 'percent' ? 'Rate %' : 'Amount (USD)'}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4"
           />
           <div className="flex justify-end gap-2">
@@ -205,9 +210,9 @@ function AddVendorModal({ onClose, onSaved }: { onClose: () => void; onSaved: (i
       const { data } = await adminApi.post('/vendors', { name: name.trim() });
       onSaved(data.id, data.name);
       onClose();
-      toast.success('Vendor added');
+      toast.success('Supplier added');
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to add vendor');
+      toast.error(err.response?.data?.error || 'Failed to add supplier');
     } finally {
       setLoading(false);
     }
@@ -215,13 +220,13 @@ function AddVendorModal({ onClose, onSaved }: { onClose: () => void; onSaved: (i
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
       <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">+ Add new vendor</h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">+ Add new supplier</h3>
         <form onSubmit={handleSubmit}>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Vendor name"
+            placeholder="Supplier name"
             className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4"
             autoFocus
           />
@@ -243,7 +248,7 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
   const [formData, setFormData] = useState<Partial<Product>>({
     name: '',
     description: '',
-    price: 0,
+    price: undefined as number | undefined,
     cost_price: undefined,
     category_id: undefined,
     sub_category_id: undefined,
@@ -263,6 +268,8 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
   const [showAddSub, setShowAddSub] = useState(false);
   const [showAddTax, setShowAddTax] = useState(false);
   const [showAddVendor, setShowAddVendor] = useState(false);
+  const [profitCalcCost, setProfitCalcCost] = useState<string>('');
+  const [profitCalcPercent, setProfitCalcPercent] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchCategories = async () => {
@@ -318,6 +325,7 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
     if (product) {
       setFormData({
         ...product,
+        price: product.price,
         tax_rate: product.tax_rate ?? 0,
       });
       if (product.image_url) setImagePreview(product.image_url);
@@ -386,7 +394,7 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
     e.preventDefault();
     setLoading(true);
     try {
-      const payload = { ...formData };
+      const payload = { ...formData, price: Number(formData.price) || 0 };
       if (product?.id) {
         await adminApi.put(`/products/${product.id}`, payload);
         toast.success('Product updated');
@@ -405,8 +413,51 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
 
   const selectedCategoryName = formData.category_id ? categories.find((c) => String(c.id) === String(formData.category_id))?.name : '';
 
+  const costNum = parseFloat(profitCalcCost) || 0;
+  const pctNum = parseFloat(profitCalcPercent) || 0;
+  const suggestedPrice = costNum > 0 ? (costNum * (1 + pctNum / 100)).toFixed(2) : '—';
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      {/* Floating profit calculator cloud - outside/near the lightbox */}
+      <div className="absolute top-4 right-4 z-[60] w-72 rounded-2xl border border-gray-200 bg-white shadow-xl p-4">
+        <p className="text-sm font-semibold text-gray-800 mb-3">Profit calculator</p>
+        <div className="space-y-2 text-sm">
+          <div>
+            <label className="text-gray-600">Cost price ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={profitCalcCost}
+              onChange={(e) => setProfitCalcCost(e.target.value)}
+              placeholder="e.g. 100"
+              className="mt-1 w-full px-3 py-1.5 border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="text-gray-600">Desired profit (%)</label>
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              value={profitCalcPercent}
+              onChange={(e) => setProfitCalcPercent(e.target.value)}
+              placeholder="e.g. 20"
+              className="mt-1 w-full px-3 py-1.5 border border-gray-300 rounded-lg"
+            />
+          </div>
+          <p className="text-gray-700 pt-1">
+            Set selling price to: <span className="font-bold text-gray-900">${suggestedPrice}</span>
+          </p>
+          {costNum > 0 && formData.price != null && formData.price > 0 && (
+            <p className="text-gray-600 text-xs">
+              Current: ${(formData.price - costNum).toFixed(2)} profit ({(((formData.price - costNum) / costNum) * 100).toFixed(1)}%)
+            </p>
+          )}
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-2xl font-bold text-gray-900">{product?.id ? 'Edit Product' : 'Add Product'}</h2>
@@ -416,6 +467,17 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">SKU (scan or enter barcode)</label>
+            <input
+              type="text"
+              value={formData.barcode ?? ''}
+              onChange={(e) => setFormData({ ...formData, barcode: e.target.value, plu: e.target.value })}
+              placeholder="Scan barcode or enter"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Product Name *</label>
             <input
@@ -428,23 +490,13 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-            <textarea
-              value={formData.description || ''}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              rows={3}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Item ID (admin only, not shown on website)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Product ID (admin only)</label>
             <div className="flex gap-2">
               <input
                 type="text"
-                value={formData.sku || ''}
+                value={formData.sku ?? ''}
                 onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                placeholder="e.g. SKU-001 or leave blank to auto-generate"
+                placeholder="Leave blank to auto-generate"
                 className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
               <button
@@ -454,7 +506,7 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
                     const { data } = await adminApi.get('/products/generate-id');
                     setFormData((prev) => ({ ...prev, sku: data.item_id || '' }));
                   } catch {
-                    toast.error('Failed to generate Item ID');
+                    toast.error('Failed to generate Product ID');
                   }
                 }}
                 className="px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 whitespace-nowrap"
@@ -464,6 +516,16 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
             </div>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+            <textarea
+              value={formData.description || ''}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              rows={3}
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Selling price (USD) *</label>
@@ -471,8 +533,9 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
                 type="number"
                 step="0.01"
                 min="0"
-                value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) })}
+                value={formData.price === undefined ? '' : formData.price}
+                onChange={(e) => setFormData({ ...formData, price: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                placeholder="Enter amount"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 required
               />
@@ -544,14 +607,14 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Vendor</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Supplier</label>
               <select
                 value={formData.vendor_id === undefined ? '' : formData.vendor_id}
                 onChange={(e) => handleVendorChange(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               >
-                <option value="">Select vendor</option>
-                <option value={ADD_VENDOR}>+ Add new vendor</option>
+                <option value="">Select supplier</option>
+                <option value={ADD_VENDOR}>+ Add new supplier</option>
                 {vendors.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
@@ -580,27 +643,6 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
                 min="0"
                 value={formData.low_stock_threshold}
                 onChange={(e) => setFormData({ ...formData, low_stock_threshold: parseInt(e.target.value) })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Barcode (for scanning at Billing)</label>
-              <input
-                type="text"
-                value={formData.barcode || ''}
-                onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">PLU Code</label>
-              <input
-                type="text"
-                value={formData.plu || ''}
-                onChange={(e) => setFormData({ ...formData, plu: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
             </div>
@@ -669,7 +711,7 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
       {showAddTax && (
         <AddTaxTypeModal
           onClose={() => setShowAddTax(false)}
-          onSaved={(id, name, rate) => {
+          onSaved={(id, _name, rate) => {
             fetchTaxTypes();
             setFormData((f) => ({ ...f, tax_rate: rate }));
             setShowAddTax(false);

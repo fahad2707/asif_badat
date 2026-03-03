@@ -1,8 +1,6 @@
-// Utility functions for invoice generation
+// Utility functions for invoice generation (legacy fallback; prefer generateNextInvoiceNumber in route)
 export const generateInvoiceNumber = (): string => {
-  const timestamp = Date.now();
-  const random = Math.floor(Math.random() * 1000);
-  return `INV-${timestamp}-${random}`;
+  return `INV#001`;
 };
 
 export const formatInvoiceFilename = (
