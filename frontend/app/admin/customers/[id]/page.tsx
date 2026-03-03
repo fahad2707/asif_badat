@@ -266,7 +266,7 @@ export default function CustomerDetailPage() {
         <h3 className="font-semibold text-gray-900 mb-2">Documents</h3>
         {(customer.documents?.length ?? 0) > 0 ? (
           <ul className="space-y-1 text-sm mb-3">
-            {customer.documents.map((d, i) => (
+            {(customer.documents ?? []).map((d, i) => (
               <li key={i}>
                 <a href={d.url.startsWith('http') ? d.url : `${apiBase}${d.url}`} target="_blank" rel="noopener noreferrer" className="text-[#0f766e] hover:underline">{d.name}</a>
               </li>
