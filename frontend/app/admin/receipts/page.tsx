@@ -21,6 +21,22 @@ interface Receipt {
   amount_received: number;
 }
 
+interface ReceiptForm {
+  trx_date: string;
+  trx_time: string;
+  trx_id: string;
+  customer_id: string;
+  customer_name: string;
+  bank_account_id: string;
+  state: string;
+  city: string;
+  so_id: string;
+  invoice_num: string;
+  so_balance: string;
+  pmt_mode: string;
+  amount_received: string;
+}
+
 interface CustomerOption {
   id: string;
   name: string;
@@ -39,13 +55,18 @@ export default function ReceiptsPage() {
   const [bankAccountFilter, setBankAccountFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Receipt | null>(null);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<ReceiptForm>({
     trx_date: new Date().toISOString().slice(0, 10),
     trx_time: '',
     trx_id: '',
+    customer_id: '',
     customer_name: '',
     bank_account_id: '',
+    state: '',
+    city: '',
+    so_id: '',
     invoice_num: '',
+    so_balance: '',
     pmt_mode: 'Cash',
     amount_received: '',
   });
@@ -135,9 +156,14 @@ export default function ReceiptsPage() {
         trx_date: new Date().toISOString().slice(0, 10),
         trx_time: '',
         trx_id: '',
+        customer_id: '',
         customer_name: '',
-        invoice_num: '',
         bank_account_id: '',
+        state: '',
+        city: '',
+        so_id: '',
+        invoice_num: '',
+        so_balance: '',
         pmt_mode: 'Cash',
         amount_received: '',
       });
@@ -155,9 +181,14 @@ export default function ReceiptsPage() {
       trx_date: r.trx_date?.toString().slice(0, 10) || new Date().toISOString().slice(0, 10),
       trx_time: '',
       trx_id: r.trx_id,
+      customer_id: r.customer_id || '',
       customer_name: r.customer_name || '',
       bank_account_id: r.bank_account_id || '',
+      state: r.state || '',
+      city: r.city || '',
+      so_id: r.so_id || '',
       invoice_num: r.invoice_num || '',
+      so_balance: '',
       pmt_mode: r.pmt_mode || 'Cash',
       amount_received: String(r.amount_received ?? ''),
     });
@@ -202,6 +233,7 @@ export default function ReceiptsPage() {
               setEditing(null);
               setForm({
                 trx_date: new Date().toISOString().slice(0, 10),
+                trx_time: '',
                 trx_id: '',
                 customer_id: '',
                 customer_name: '',
