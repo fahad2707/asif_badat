@@ -2,11 +2,15 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
+import mongoose from 'mongoose';
 import Vendor from '../models/Vendor';
 import PurchaseOrder from '../models/PurchaseOrder';
+import Payment from '../models/Payment';
 import { authenticateAdmin, AuthRequest } from '../middleware/auth';
 import { z } from 'zod';
-import { getVendorBalance, getVendorStatement, getVendorBalancesBulk } from '../modules/vendors/services/vendorLedgerService';
+import { getVendorBalance, getVendorStatement, getVendorBalancesBulk, postVendorLedger } from '../modules/vendors/services/vendorLedgerService';
+import { LedgerAccountType, LedgerReferenceType } from '../shared/enums';
+import LedgerEntry from '../models/LedgerEntry';
 import {
   getVendorOutstanding,
   getVendorOverdue,
@@ -249,6 +253,78 @@ router.get('/:id/balance', authenticateAdmin, async (req: AuthRequest, res) => {
   } catch (e) {
     console.error('Vendor balance:', e);
     res.status(500).json({ error: 'Failed to fetch balance' });
+  }
+});
+
+// Record vendor payment (Pay Now) – creates Payment and ledger entries to clear balance
+const paymentMethodToAccount: Record<string, string> = {
+  cash: LedgerAccountType.CASH,
+  card: LedgerAccountType.CARD,
+  check: LedgerAccountType.BANK,
+  digital: LedgerAccountType.BANK,
+  other: LedgerAccountType.CASH,
+};
+router.post('/:id/payments', authenticateAdmin, async (req: AuthRequest, res) => {
+  try {
+    const vendor = await Vendor.findById(req.params.id);
+    if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+    const schema = z.object({
+      amount: z.number().positive(),
+      method: z.enum(['cash', 'card', 'check', 'digital', 'other']),
+      reference: z.string().optional(),
+      notes: z.string().optional(),
+    });
+    const data = schema.parse(req.body);
+    const vendorId = new mongoose.Types.ObjectId(req.params.id);
+    const balance = await getVendorBalance(vendorId);
+    if (data.amount > balance) {
+      return res.status(400).json({ error: `Amount cannot exceed open balance ($${balance.toFixed(2)})` });
+    }
+    const payment = await Payment.create({
+      type: 'vendor',
+      amount: data.amount,
+      method: data.method,
+      reference: data.reference,
+      notes: data.notes,
+      vendor_id: vendorId,
+      created_by: req.userId ? new mongoose.Types.ObjectId(req.userId) : undefined,
+    });
+    const cashAccount = paymentMethodToAccount[data.method] || LedgerAccountType.CASH;
+    const createdBy = req.userId ? new mongoose.Types.ObjectId(req.userId) : undefined;
+    // Vendor ledger: CR VENDOR (reduces payable)
+    await postVendorLedger(
+      vendorId,
+      [
+        { account_type: LedgerAccountType.VENDOR, debit: 0, credit: data.amount, reference_type: LedgerReferenceType.PAYMENT, reference_id: payment._id, description: data.notes || `Vendor payment (${data.method})` },
+      ],
+      createdBy
+    );
+    // Cash/Bank out (no party – so doesn't affect vendor balance)
+    await LedgerEntry.create({
+      date: new Date(),
+      account_type: cashAccount,
+      party_type: undefined,
+      party_id: undefined,
+      debit: data.amount,
+      credit: 0,
+      reference_type: LedgerReferenceType.PAYMENT,
+      reference_id: payment._id,
+      description: data.notes || `Payment to ${(vendor as any).name}`,
+      created_by: createdBy,
+    });
+    res.status(201).json({
+      payment: {
+        id: payment._id.toString(),
+        amount: payment.amount,
+        method: payment.method,
+        reference: payment.reference,
+        created_at: payment.created_at,
+      },
+    });
+  } catch (e: any) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
+    console.error('Vendor payment:', e);
+    res.status(500).json({ error: e.message || 'Failed to record payment' });
   }
 });
 

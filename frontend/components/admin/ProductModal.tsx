@@ -268,8 +268,8 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
   const [showAddSub, setShowAddSub] = useState(false);
   const [showAddTax, setShowAddTax] = useState(false);
   const [showAddVendor, setShowAddVendor] = useState(false);
-  const [profitCalcCost, setProfitCalcCost] = useState<string>('');
-  const [profitCalcPercent, setProfitCalcPercent] = useState<string>('');
+  const [marginPct, setMarginPct] = useState<string>('');
+  const [marginUsd, setMarginUsd] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchCategories = async () => {
@@ -413,51 +413,33 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
 
   const selectedCategoryName = formData.category_id ? categories.find((c) => String(c.id) === String(formData.category_id))?.name : '';
 
-  const costNum = parseFloat(profitCalcCost) || 0;
-  const pctNum = parseFloat(profitCalcPercent) || 0;
-  const suggestedPrice = costNum > 0 ? (costNum * (1 + pctNum / 100)).toFixed(2) : '—';
+  const costVal = Number(formData.cost_price) || 0;
+  const sellVal = Number(formData.price) || 0;
+  const autoMarginPct = costVal > 0 && sellVal > 0 ? (((sellVal - costVal) / sellVal) * 100) : null;
+  const autoMarginUsd = costVal > 0 && sellVal > 0 ? (sellVal - costVal) : null;
+
+  const handleMarginPctChange = (val: string) => {
+    setMarginPct(val);
+    setMarginUsd('');
+    const pct = parseFloat(val);
+    if (!isNaN(pct) && pct < 100 && costVal > 0) {
+      const suggested = Math.round((costVal / (1 - pct / 100)) * 100) / 100;
+      setFormData((f) => ({ ...f, price: suggested }));
+    }
+  };
+
+  const handleMarginUsdChange = (val: string) => {
+    setMarginUsd(val);
+    setMarginPct('');
+    const usd = parseFloat(val);
+    if (!isNaN(usd) && costVal > 0) {
+      const suggested = Math.round((costVal + usd) * 100) / 100;
+      setFormData((f) => ({ ...f, price: suggested }));
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      {/* Floating profit calculator cloud - outside/near the lightbox */}
-      <div className="absolute top-4 right-4 z-[60] w-72 rounded-2xl border border-gray-200 bg-white shadow-xl p-4">
-        <p className="text-sm font-semibold text-gray-800 mb-3">Profit calculator</p>
-        <div className="space-y-2 text-sm">
-          <div>
-            <label className="text-gray-600">Cost price ($)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={profitCalcCost}
-              onChange={(e) => setProfitCalcCost(e.target.value)}
-              placeholder="e.g. 100"
-              className="mt-1 w-full px-3 py-1.5 border border-gray-300 rounded-lg"
-            />
-          </div>
-          <div>
-            <label className="text-gray-600">Desired profit (%)</label>
-            <input
-              type="number"
-              step="0.5"
-              min="0"
-              value={profitCalcPercent}
-              onChange={(e) => setProfitCalcPercent(e.target.value)}
-              placeholder="e.g. 20"
-              className="mt-1 w-full px-3 py-1.5 border border-gray-300 rounded-lg"
-            />
-          </div>
-          <p className="text-gray-700 pt-1">
-            Set selling price to: <span className="font-bold text-gray-900">${suggestedPrice}</span>
-          </p>
-          {costNum > 0 && formData.price != null && formData.price > 0 && (
-            <p className="text-gray-600 text-xs">
-              Current: ${(formData.price - costNum).toFixed(2)} profit ({(((formData.price - costNum) / costNum) * 100).toFixed(1)}%)
-            </p>
-          )}
-        </div>
-      </div>
-
       <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-2xl font-bold text-gray-900">{product?.id ? 'Edit Product' : 'Add Product'}</h2>
@@ -534,7 +516,7 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
                 step="0.01"
                 min="0"
                 value={formData.price === undefined ? '' : formData.price}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                onChange={(e) => { setFormData({ ...formData, price: e.target.value === '' ? undefined : parseFloat(e.target.value) }); setMarginPct(''); setMarginUsd(''); }}
                 placeholder="Enter amount"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 required
@@ -547,12 +529,49 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
                 step="0.01"
                 min="0"
                 value={formData.cost_price ?? ''}
-                onChange={(e) => setFormData({ ...formData, cost_price: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                onChange={(e) => { setFormData({ ...formData, cost_price: e.target.value === '' ? undefined : parseFloat(e.target.value) }); setMarginPct(''); setMarginUsd(''); }}
                 placeholder="Optional"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
             </div>
           </div>
+
+          {costVal > 0 && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-700">Margin calculator</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Margin (%)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={marginPct}
+                    onChange={(e) => handleMarginPctChange(e.target.value)}
+                    placeholder={autoMarginPct != null ? autoMarginPct.toFixed(1) : 'e.g. 20'}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#0f766e] focus:border-[#0f766e]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Margin ($)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={marginUsd}
+                    onChange={(e) => handleMarginUsdChange(e.target.value)}
+                    placeholder={autoMarginUsd != null ? autoMarginUsd.toFixed(2) : 'e.g. 5.00'}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#0f766e] focus:border-[#0f766e]"
+                  />
+                </div>
+              </div>
+              {autoMarginPct != null && (
+                <p className="text-xs text-gray-600">
+                  Current margin: <span className="font-semibold text-gray-900">${autoMarginUsd!.toFixed(2)}</span> ({autoMarginPct.toFixed(1)}%)
+                  {sellVal > 0 && costVal > 0 && <span className="ml-2 text-gray-500">· Cost ${costVal.toFixed(2)} → Sell ${sellVal.toFixed(2)}</span>}
+                </p>
+              )}
+              <p className="text-xs text-gray-500">Type a margin % or $ amount — the selling price updates automatically. Edit selling price directly to see the margin.</p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Category (product appears here on website)</label>
@@ -571,23 +590,7 @@ export default function ProductModal({ product, onClose, onSuccess }: ProductMod
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Sub-category (product appears here on website)</label>
-            <select
-              value={formData.sub_category_id === undefined ? '' : formData.sub_category_id}
-              onChange={(e) => handleSubChange(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              disabled={!formData.category_id}
-            >
-              <option value="">Select sub-category</option>
-              <option value={ADD_SUB}>+ Add new sub-category</option>
-              {subCategories.map((sub) => (
-                <option key={sub.id} value={sub.id}>
-                  {sub.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Sub-category hidden from UI; still supported by API */}
 
           <div className="grid grid-cols-2 gap-4">
             <div>

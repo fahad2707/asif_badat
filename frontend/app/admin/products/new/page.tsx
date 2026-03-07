@@ -40,6 +40,8 @@ export default function NewProductPage() {
     stock_quantity: '0',
     low_stock_threshold: '10',
   });
+  const [marginPct, setMarginPct] = useState('');
+  const [marginUsd, setMarginUsd] = useState('');
 
   useEffect(() => {
     adminApi.get('/categories').then((r) => setCategories(r.data || [])).catch(() => {});
@@ -198,7 +200,7 @@ export default function NewProductPage() {
               step="0.01"
               min="0"
               value={form.selling_price}
-              onChange={(e) => setForm((f) => ({ ...f, selling_price: e.target.value }))}
+              onChange={(e) => { setForm((f) => ({ ...f, selling_price: e.target.value })); setMarginPct(''); setMarginUsd(''); }}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
               required
             />
@@ -210,12 +212,70 @@ export default function NewProductPage() {
               step="0.01"
               min="0"
               value={form.cost_price}
-              onChange={(e) => setForm((f) => ({ ...f, cost_price: e.target.value }))}
+              onChange={(e) => { setForm((f) => ({ ...f, cost_price: e.target.value })); setMarginPct(''); setMarginUsd(''); }}
               placeholder="Optional"
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
             />
           </div>
         </div>
+
+        {parseFloat(form.cost_price) > 0 && (() => {
+          const costVal = parseFloat(form.cost_price) || 0;
+          const sellVal = parseFloat(form.selling_price) || 0;
+          const autoMarginPct = costVal > 0 && sellVal > 0 ? ((sellVal - costVal) / sellVal) * 100 : null;
+          const autoMarginUsd = costVal > 0 && sellVal > 0 ? sellVal - costVal : null;
+          return (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-700">Margin calculator</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Margin (%)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={marginPct}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMarginPct(val);
+                      setMarginUsd('');
+                      const pct = parseFloat(val);
+                      if (!isNaN(pct) && pct < 100 && costVal > 0) {
+                        setForm((f) => ({ ...f, selling_price: String(Math.round((costVal / (1 - pct / 100)) * 100) / 100) }));
+                      }
+                    }}
+                    placeholder={autoMarginPct != null ? autoMarginPct.toFixed(1) : 'e.g. 20'}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#0f766e] focus:border-[#0f766e]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Margin ($)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={marginUsd}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMarginUsd(val);
+                      setMarginPct('');
+                      const usd = parseFloat(val);
+                      if (!isNaN(usd) && costVal > 0) {
+                        setForm((f) => ({ ...f, selling_price: String(Math.round((costVal + usd) * 100) / 100) }));
+                      }
+                    }}
+                    placeholder={autoMarginUsd != null ? autoMarginUsd.toFixed(2) : 'e.g. 5.00'}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#0f766e] focus:border-[#0f766e]"
+                  />
+                </div>
+              </div>
+              {autoMarginPct != null && (
+                <p className="text-xs text-gray-600">
+                  Current margin: <span className="font-semibold text-gray-900">${autoMarginUsd!.toFixed(2)}</span> ({autoMarginPct.toFixed(1)}%)
+                </p>
+              )}
+              <p className="text-xs text-gray-500">Type a margin % or $ — the selling price updates automatically. Edit selling price directly to see the calculated margin.</p>
+            </div>
+          );
+        })()}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Category (product appears here on website)</label>

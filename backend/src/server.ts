@@ -3,7 +3,7 @@ import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import rateLimit from 'express-rate-limit';
+
 import connectDB from './db/connection';
 
 // Routes
@@ -32,8 +32,20 @@ import creditMemoRoutes from './modules/credit-memo/routes/creditMemo';
 import shipmentRoutes from './modules/shipping/routes/shipments';
 import expenseRoutes from './modules/expenses/routes/expenses';
 import reportRoutes from './modules/reports/routes/reports';
+import onlineOrderRoutes from './routes/online-orders';
 
 dotenv.config();
+
+// Keep the process alive on unhandled promise rejections (e.g. async route errors)
+// so the server does not crash and you can see the logged error.
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -60,17 +72,6 @@ app.use(cors({
   credentials: true,
 }));
 
-// Rate limiting
-// NOTE: Disabled in production on Render to avoid 429s caused by all traffic
-// appearing to come from a small set of proxy IPs. Re‑enable or tune if you
-// put the API behind a proxy that preserves real client IPs.
-if (process.env.NODE_ENV !== 'production') {
-  const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
-  });
-  app.use('/api/', limiter);
-}
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
@@ -107,6 +108,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/returns', returnsRoutes);
 app.use('/api/receipts', receiptsRoutes);
 app.use('/api/credit-memos', creditMemoRoutes);
+app.use('/api/online-orders', onlineOrderRoutes);
 app.use('/api/shipments', shipmentRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/reports', reportRoutes);
@@ -125,6 +127,16 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+function shutdown(signal: string) {
+  console.log(`\n${signal} received, shutting down gracefully...`);
+  server.close(() => {
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 5000);
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

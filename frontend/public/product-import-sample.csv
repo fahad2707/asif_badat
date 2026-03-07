@@ -1,6 +1,6 @@
-name,slug,description,price,cost_price,category_slug,image_url,barcode,plu,sku,stock_quantity,low_stock_threshold,tax_rate,is_active
-"Wireless Bluetooth Earbuds",,"Noise cancelling wireless earbuds with 24hr battery",49.99,25.00,electronics,,ELEC101,,SKU-ELEC101,100,10,0,1
-"Organic Green Tea 100g",,"Premium loose leaf green tea",12.99,5.50,health-beauty,,,102,SKU-TEA102,200,20,0,1
-"Office Notebook A4",,"Pack of 3 ruled notebooks 80 pages",8.99,3.20,office-supplies,,OFFICE101,,SKU-NB101,150,15,8.5,1
-"Running Shoes Pro",,"Lightweight running shoes size 7-11",79.99,42.00,clothing,,CLOTH101,,SKU-SHOE101,60,5,0,1
-"Garden Hose 50ft",,"Expandable garden hose with spray nozzle",34.99,18.00,home-garden,,HOME101,,SKU-HOSE101,45,10,0,1
+Name,SKU,Type,Sales Description,Sales Price,Taxable,Purchase Cost,Quantity On Hand,Reorder Point,Category
+"Wireless Bluetooth Earbuds",SKU-ELEC101,inventory,"Noise cancelling wireless earbuds with 24hr battery",49.99,0,25.00,100,10,electronics
+"Organic Green Tea 100g",SKU-TEA102,inventory,"Premium loose leaf green tea",12.99,0,5.50,200,20,health-beauty
+"Office Notebook A4",SKU-NB101,inventory,"Pack of 3 ruled notebooks 80 pages",8.99,8.5,3.20,150,15,office-supplies
+"Running Shoes Pro",SKU-SHOE101,inventory,"Lightweight running shoes size 7-11",79.99,0,42.00,60,5,clothing
+"Garden Hose 50ft",SKU-HOSE101,inventory,"Expandable garden hose with spray nozzle",34.99,0,18.00,45,10,home-garden

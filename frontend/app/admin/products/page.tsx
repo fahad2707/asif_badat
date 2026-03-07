@@ -12,7 +12,12 @@ interface Product {
   price: number;
   stock_quantity: number;
   low_stock_threshold?: number;
-  barcode?: string;
+  sku?: string;
+  product_type?: string;
+  description?: string;
+  cost_price?: number;
+  tax_rate?: number;
+  reorder_point?: number;
   category_name?: string;
   image_url?: string;
   is_active: boolean;
@@ -24,13 +29,14 @@ interface PreviewRow {
     category: string;
     subcategory: string;
     name: string;
+    product_type?: string;
     price: number;
     cost_price: number;
     sku: string | null;
-    barcode: string | null;
     stock_quantity: number;
     tax_rate: number;
     is_active: boolean;
+    low_stock_threshold?: number;
   } | null;
   errors: string[];
   status: 'valid' | 'invalid' | 'duplicate_skipped';
@@ -187,17 +193,22 @@ export default function ProductsPage() {
   const handleExportSelected = () => {
     if (selectedIds.size === 0) return;
     const rows = filteredProducts.filter((p) => selectedIds.has(String(p.id)));
-    const headers = ['Name', 'Category', 'Price', 'Stock', 'Barcode', 'SKU'];
+    // QuickBooks-compatible: Name, SKU, Type, Sales Description, Sales Price, Taxable, Purchase Cost, Quantity On Hand, Reorder Point, Category
+    const headers = ['Name', 'SKU', 'Type', 'Sales Description', 'Sales Price', 'Taxable', 'Purchase Cost', 'Quantity On Hand', 'Reorder Point', 'Category'];
     const csvRows = [
       headers.join(','),
       ...rows.map((p) =>
         [
           `"${(p.name || '').replace(/"/g, '""')}"`,
-          `"${(p.category_name || '').replace(/"/g, '""')}"`,
+          `"${(p.sku || '').replace(/"/g, '""')}"`,
+          (p.product_type || 'inventory').replace(/_/g, ' '),
+          `"${(p.description || '').replace(/"/g, '""')}"`,
           parseFloat(String(p.price)).toFixed(2),
-          p.stock_quantity,
-          (p.barcode || '').replace(/"/g, '""'),
-          '',
+          p.tax_rate ?? 0,
+          (p.cost_price != null ? parseFloat(String(p.cost_price)).toFixed(2) : ''),
+          p.stock_quantity ?? 0,
+          p.reorder_point ?? p.low_stock_threshold ?? 10,
+          `"${(p.category_name || '').replace(/"/g, '""')}"`,
         ].join(',')
       ),
     ];
@@ -500,7 +511,6 @@ export default function ProductsPage() {
                 <th className="text-left py-3 px-4 text-gray-700">Category</th>
                 <th className="text-right py-3 px-4 text-gray-700">Price</th>
                 <th className="text-right py-3 px-4 text-gray-700">Stock</th>
-                <th className="text-left py-3 px-4 text-gray-700">Barcode</th>
                 <th className="text-right py-3 px-4 text-gray-700">Actions</th>
               </tr>
             </thead>
@@ -533,7 +543,6 @@ export default function ProductsPage() {
                       {product.stock_quantity}
                     </span>
                   </td>
-                  <td className="py-3 px-4 text-gray-700 font-mono text-sm">{product.barcode || '-'}</td>
                   <td className="py-3 px-4">
                     <div className="flex items-center justify-end gap-2">
                       <button

@@ -53,7 +53,7 @@ const ReturnSchema = new Schema<IReturn>(
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } }
 );
 
-ReturnSchema.index({ return_number: 1 });
+// return_number already has unique: true in schema, no need for duplicate index
 ReturnSchema.index({ sale_id: 1 });
 ReturnSchema.index({ order_id: 1 });
 ReturnSchema.index({ created_at: -1 });

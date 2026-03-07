@@ -1,8 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Package, Plus, Search, Edit, Trash2, X } from 'lucide-react';
+import { Package, Search, Edit, Trash2, X } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 
@@ -210,13 +209,6 @@ export default function InventoryPage() {
           />
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <Link
-            href="/admin/products/new"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]"
-          >
-            <Plus className="w-4 h-4" />
-            Add new product
-          </Link>
           <button
             type="button"
             onClick={() => {

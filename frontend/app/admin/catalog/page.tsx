@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { FolderTree, Layers, Percent, CreditCard, Landmark, Plus, Edit, Trash2, X, FileDown, Package } from 'lucide-react';
+import { FolderTree, Layers, Percent, CreditCard, Landmark, Plus, Edit, Trash2, X, FileDown, Package, ImagePlus } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 
@@ -12,6 +12,7 @@ interface Category {
   name: string;
   slug: string;
   description?: string;
+  image_url?: string;
   display_order?: number;
 }
 
@@ -205,7 +206,7 @@ export default function CatalogPage() {
   }, [selectedSubcategoryId, fetchProductsBySubcategory, fetchAllProducts]);
 
   const openAdd = (type: TabId) => {
-    if (type === 'categories') setForm({ name: '', description: '', display_order: 0 });
+    if (type === 'categories') setForm({ name: '', description: '', image_url: '', display_order: 0 });
     if (type === 'subcategories') setForm({ name: '', category_id: categories[0]?.id || '', display_order: 0 });
     if (type === 'tax') setForm({ name: '', rate: 0, rate_type: 'percent' });
     if (type === 'payment') setForm({ name: '', display_order: 0 });
@@ -224,8 +225,9 @@ export default function CatalogPage() {
     const { type, edit } = modal;
     try {
       if (type === 'categories') {
-        if (edit) await adminApi.put(`/categories/${edit.id}`, { name: form.name, description: form.description, display_order: form.display_order });
-        else await adminApi.post('/categories', { name: form.name, description: form.description, display_order: form.display_order ?? 0 });
+        const catPayload = { name: form.name, description: form.description, image_url: form.image_url || '', display_order: form.display_order };
+        if (edit) await adminApi.put(`/categories/${edit.id}`, catPayload);
+        else await adminApi.post('/categories', { ...catPayload, display_order: form.display_order ?? 0 });
       }
       if (type === 'subcategories') {
         if (edit) await adminApi.put(`/sub-categories/${edit.id}`, { name: form.name, category_id: form.category_id, display_order: form.display_order });

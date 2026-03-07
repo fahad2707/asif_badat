@@ -6,20 +6,21 @@ async function migrate() {
   try {
     await connectDB();
     
-    // Create default admin user if it doesn't exist
-    const existingAdmin = await Admin.findOne({ email: 'admin@expressdistributors.com' });
-    
+    // Create default admin user if it doesn't exist (single admin: admin@edinc.com)
+    const defaultEmail = 'admin@edinc.com';
+    const existingAdmin = await Admin.findOne({ email: defaultEmail });
+
     if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash('admin123', 10);
+      const hashedPassword = await bcrypt.hash('Admin1234', 10);
       await Admin.create({
-        email: 'admin@expressdistributors.com',
+        email: defaultEmail,
         password_hash: hashedPassword,
-        name: 'Admin User',
+        name: 'Admin',
         role: 'admin',
       });
       console.log('✅ Default admin created');
-      console.log('   Email: admin@expressdistributors.com');
-      console.log('   Password: admin123');
+      console.log('   Email: admin@edinc.com');
+      console.log('   Password: Admin1234');
     } else {
       console.log('✅ Admin user already exists');
     }

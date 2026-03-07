@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import mongoose from 'mongoose';
 import Product from '../models/Product';
 import Category from '../models/Category';
 import { authenticateAdmin, AuthRequest } from '../middleware/auth';
@@ -7,6 +8,13 @@ import { z } from 'zod';
 import { buildPreview, executeImport } from '../services/productImportService';
 
 const router = express.Router();
+
+/** Only return an ObjectId if the string is a valid 24-char hex; otherwise undefined (avoids Mongoose throw). */
+function toObjectIdOrUndefined(id: string | undefined): mongoose.Types.ObjectId | undefined {
+  if (!id || typeof id !== 'string' || id.length !== 24) return undefined;
+  if (!/^[a-f0-9A-F]{24}$/.test(id)) return undefined;
+  return new mongoose.Types.ObjectId(id);
+}
 
 async function generateItemId(): Promise<string> {
   const ProductModel = Product;
@@ -240,6 +248,10 @@ router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
     const slug = data.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     const price = (data.price != null && !Number.isNaN(Number(data.price))) ? Number(data.price) : 0;
 
+    const categoryId = toObjectIdOrUndefined(data.category_id);
+    const subCategoryId = toObjectIdOrUndefined(data.sub_category_id);
+    const vendorId = toObjectIdOrUndefined(data.vendor_id);
+
     const product = await Product.create({
       name: data.name,
       slug,
@@ -248,19 +260,20 @@ router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
       product_type: data.product_type || 'inventory',
       price,
       cost_price: data.cost_price ?? undefined,
-      category_id: data.category_id || undefined,
-      sub_category_id: data.sub_category_id || undefined,
-      vendor_id: data.vendor_id || undefined,
+      category_id: categoryId,
+      sub_category_id: subCategoryId,
+      vendor_id: vendorId,
       tax_rate: data.tax_rate ?? 0,
-      image_url: data.image_url,
-      barcode: data.barcode,
+      image_url: data.image_url || undefined,
+      barcode: data.barcode || undefined,
       stock_quantity: data.stock_quantity ?? 0,
       low_stock_threshold: data.low_stock_threshold ?? 10,
     });
 
+    const obj = product.toObject();
     res.status(201).json({
       id: product._id.toString(),
-      ...product.toObject(),
+      ...obj,
     });
   } catch (error: any) {
     if (error instanceof z.ZodError) {

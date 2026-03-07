@@ -76,10 +76,10 @@ export default function AdminLoginPage() {
           </button>
         </form>
         <p className="mt-6 text-center text-sm text-gray-500">
-          Default: admin@expressdistributors.com / admin123
+          Default: admin@edinc.com / Admin1234
         </p>
         <p className="mt-1 text-center text-xs text-gray-400">
-          If login or website fails, run backend and migrate — see FIX_LOGIN_AND_PRODUCTS.md
+          If login or website fails, run backend and seed — see FIX_LOGIN_AND_PRODUCTS.md
         </p>
       </div>
     </div>

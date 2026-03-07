@@ -5,6 +5,7 @@ import Customer from '../models/Customer';
 import Receipt from '../models/Receipt';
 import StoreSettings from '../models/StoreSettings';
 import Product from '../models/Product';
+import CustomerProductPrice from '../models/CustomerProductPrice';
 import { authenticateAdmin, AuthRequest } from '../middleware/auth';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
@@ -14,6 +15,24 @@ import nodemailer from 'nodemailer';
 const router = express.Router();
 
 const LOCATION_OF_SALE = '511 W Germantown Pike, Plymouth Meeting, PA 19462-1303';
+
+async function saveCustomerProductPrices(customerId: string | mongoose.Types.ObjectId, items: any[], invoiceId: string | mongoose.Types.ObjectId, invoiceDate: Date) {
+  if (!customerId) return;
+  const cid = typeof customerId === 'string' ? new mongoose.Types.ObjectId(customerId) : customerId;
+  const iid = typeof invoiceId === 'string' ? new mongoose.Types.ObjectId(invoiceId) : invoiceId;
+  const ops = items
+    .filter((i: any) => i.product_id && Number(i.price) > 0)
+    .map((i: any) => ({
+      updateOne: {
+        filter: { customer_id: cid, product_id: typeof i.product_id === 'string' ? new mongoose.Types.ObjectId(i.product_id) : i.product_id },
+        update: { $set: { last_price: Number(i.price), last_invoice_id: iid, last_invoice_date: invoiceDate } },
+        upsert: true,
+      },
+    }));
+  if (ops.length > 0) {
+    await CustomerProductPrice.bulkWrite(ops).catch((err) => console.error('Save customer prices error:', err));
+  }
+}
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
@@ -241,20 +260,20 @@ const generateInvoicePDF = async (invoice: any, items: any[], skuMap: Record<str
   });
 };
 
-// Summary: total paid, unpaid, overdue, open, and recently paid (for customers dashboard)
+// Summary: total paid = sum(amount_paid), total unpaid = sum(total_amount - amount_paid) so timeline matches table
 router.get('/summary', authenticateAdmin, async (_req, res) => {
   try {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const unpaidGroup = { $group: { _id: null as unknown, total: { $sum: { $subtract: ['$total_amount', { $ifNull: ['$amount_paid', 0] }] } } } };
     const [paidResult, unpaidResult, overdueResult, paidCountResult, unpaidCountResult, overdueCountResult, recentlyPaidResult] = await Promise.all([
-      Invoice.aggregate([{ $match: { payment_status: 'paid' } }, { $group: { _id: null, total: { $sum: '$total_amount' } } }]),
-      Invoice.aggregate([{ $match: { payment_status: 'unpaid' } }, unpaidGroup]),
-      Invoice.aggregate([{ $match: { payment_status: 'unpaid', due_date: { $lt: now } } }, unpaidGroup]),
-      Invoice.countDocuments({ payment_status: 'paid' }),
-      Invoice.countDocuments({ payment_status: 'unpaid' }),
-      Invoice.countDocuments({ payment_status: 'unpaid', due_date: { $lt: now } }),
-      Invoice.aggregate([{ $match: { payment_status: 'paid', updated_at: { $gte: thirtyDaysAgo } } }, { $group: { _id: null, total: { $sum: '$total_amount' } } }]),
+      Invoice.aggregate([{ $group: { _id: null, total: { $sum: { $ifNull: ['$amount_paid', 0] } } } }]),
+      Invoice.aggregate([{ $project: { balance: { $subtract: ['$total_amount', { $ifNull: ['$amount_paid', 0] }] } } }, { $match: { balance: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$balance' } } }]),
+      Invoice.aggregate([{ $match: { due_date: { $lt: now } } }, { $project: { balance: { $subtract: ['$total_amount', { $ifNull: ['$amount_paid', 0] }] } } }, { $match: { balance: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$balance' } } }]),
+      Invoice.countDocuments({ $expr: { $gte: [{ $ifNull: ['$amount_paid', 0] }, '$total_amount'] } }),
+      Invoice.countDocuments({ $expr: { $lt: [{ $ifNull: ['$amount_paid', 0] }, '$total_amount'] } }),
+      Invoice.countDocuments({ due_date: { $lt: now }, $expr: { $lt: [{ $ifNull: ['$amount_paid', 0] }, '$total_amount'] } }),
+      Invoice.aggregate([{ $match: { updated_at: { $gte: thirtyDaysAgo } } }, { $group: { _id: null, total: { $sum: { $ifNull: ['$amount_paid', 0] } } } }]),
     ]);
     const totalPaid = paidResult[0]?.total ?? 0;
     const totalUnpaid = unpaidResult[0]?.total ?? 0;
@@ -367,6 +386,25 @@ router.get('/generate-number', authenticateAdmin, async (req: AuthRequest, res) 
   }
 });
 
+// Get customer-specific last prices for all products
+router.get('/customer-prices/:customerId', authenticateAdmin, async (req: AuthRequest, res) => {
+  try {
+    const { customerId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.json({});
+    }
+    const prices = await CustomerProductPrice.find({ customer_id: new mongoose.Types.ObjectId(customerId) }).lean();
+    const priceMap: Record<string, number> = {};
+    for (const p of prices) {
+      priceMap[(p as any).product_id.toString()] = (p as any).last_price;
+    }
+    res.json(priceMap);
+  } catch (error) {
+    console.error('Fetch customer prices error:', error);
+    res.status(500).json({ error: 'Failed to fetch customer prices' });
+  }
+});
+
 // Create manual invoice or quotation (saved as unpaid)
 router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
   try {
@@ -429,6 +467,8 @@ router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
       const qty = Number(item.quantity) || 0;
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock_quantity: -qty } });
     }
+
+    await saveCustomerProductPrices(customer_id as any, items, inv._id, invoice_date);
 
     const doc = inv.toObject();
     res.status(201).json({
@@ -562,7 +602,16 @@ router.put('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
       invoice.tax_amount = Number(body.tax_amount) ?? invoice.tax_amount;
       invoice.total_amount = subtotal_amount + invoice.tax_amount;
     }
+    // Never overwrite amount_paid on edit. Recompute payment_status from actual amount_paid vs total.
+    const paid = invoice.amount_paid ?? 0;
+    const total = invoice.total_amount ?? 0;
+    invoice.payment_status = paid >= total ? 'paid' : 'unpaid';
     await invoice.save();
+
+    if (invoice.customer_id && invoice.items?.length) {
+      await saveCustomerProductPrices(invoice.customer_id, invoice.items, invoice._id, invoice.invoice_date || new Date());
+    }
+
     const doc = invoice.toObject();
     res.json({
       id: (doc as any)._id.toString(),

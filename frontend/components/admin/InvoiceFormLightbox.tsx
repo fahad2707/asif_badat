@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { X, Trash2 } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
+import SearchableProductDropdown, { type ProductOption } from './SearchableProductDropdown';
 
 const LOCATION_OF_SALE = '511 W Germantown Pike, Plymouth Meeting, PA 19462-1303';
 const INITIAL_LINES = 15;
@@ -40,7 +41,8 @@ interface LineItem {
   quantity: number;
   price: number;
   subtotal: number;
-  cost_price?: number; // display only in lightbox; never sent to API or PDF
+  cost_price?: number;
+  stock_quantity?: number;
 }
 
 interface InvoiceFormLightboxProps {
@@ -74,6 +76,15 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
   const [selectedTaxTypeId, setSelectedTaxTypeId] = useState('');
   const [taxTypes, setTaxTypes] = useState<{ id: string; name: string; rate: number; rate_type: string }[]>([]);
   const [lines, setLines] = useState<LineItem[]>([]);
+  const [customerPrices, setCustomerPrices] = useState<Record<string, number>>({});
+
+  const fetchCustomerPrices = useCallback(async (cid: string) => {
+    if (!cid) { setCustomerPrices({}); return; }
+    try {
+      const res = await adminApi.get(`/invoices/customer-prices/${cid}`);
+      setCustomerPrices(res.data || {});
+    } catch { setCustomerPrices({}); }
+  }, []);
 
   const fillCustomer = useCallback((c: Customer) => {
     const addr = c.billing_address || [c.address, c.city, c.state, c.zip].filter(Boolean).join(', ');
@@ -147,6 +158,11 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
     }
   }, [isOpen, editId, initialDocumentType]);
 
+  useEffect(() => {
+    if (isOpen && customerId) fetchCustomerPrices(customerId);
+    if (!customerId) setCustomerPrices({});
+  }, [isOpen, customerId, fetchCustomerPrices]);
+
   const subtotal = lines.reduce((s, l) => s + l.subtotal, 0);
 
   useEffect(() => {
@@ -159,7 +175,7 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
   }, [selectedTaxTypeId, subtotal, taxTypes]);
   const total = subtotal + taxAmount;
 
-  const firstEmptyLineIndex = lines.findIndex((l) => !l.product_id && !l.product_name);
+
   const getLineCost = (line: LineItem): number | null | undefined => {
     if (line.cost_price != null) return Number(line.cost_price);
     const pid = line.product_id ? String(line.product_id) : '';
@@ -169,54 +185,67 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
     return cp != null ? Number(cp) : undefined;
   };
 
+  const warnIfOverStock = (name: string, qty: number, stock: number | undefined) => {
+    if (stock != null && qty > stock) {
+      toast.error(`Warning: "${name}" has only ${stock} in stock but you're adding ${qty}.`, { duration: 5000 });
+    }
+  };
+
   const selectProductForLine = (index: number, product: Product) => {
-    // Prevent adding out-of-stock products
     if (product.stock_quantity != null && product.stock_quantity <= 0) {
-      toast.error('This product is out of stock. Please restock before invoicing.');
+      toast.error(`"${product.name}" is out of stock (0 available). Please restock before invoicing.`, { duration: 5000 });
       return;
     }
     const newLines = [...lines];
     const line = newLines[index];
     if (!line) return;
-    // If this product already exists on another line, merge quantities there instead of duplicating
     const existingIdx = newLines.findIndex((l, i) => i !== index && l.product_id === product.id);
     if (existingIdx !== -1) {
       const existing = newLines[existingIdx];
       existing.quantity += (line.quantity || 1);
       existing.subtotal = existing.quantity * existing.price;
+      warnIfOverStock(product.name, existing.quantity, product.stock_quantity);
       newLines[index] = { product_id: '', product_name: '', category_name: '', quantity: 1, price: 0, subtotal: 0 };
     } else if (line.product_id === product.id) {
       line.quantity += 1;
       line.subtotal = line.quantity * line.price;
+      warnIfOverStock(product.name, line.quantity, product.stock_quantity);
     } else {
+      const customerPrice = customerPrices[product.id];
+      const usePrice = customerPrice ?? product.price;
       newLines[index] = {
         product_id: product.id,
         product_name: product.name,
         category_name: product.category_name || '',
         quantity: 1,
-        price: product.price,
-        subtotal: product.price,
+        price: usePrice,
+        subtotal: usePrice,
         cost_price: product.cost_price,
+        stock_quantity: product.stock_quantity,
       };
+      if (customerPrice != null && customerPrice !== product.price) {
+        toast.success(`Using last price for ${product.name}: $${customerPrice.toFixed(2)} (default: $${product.price.toFixed(2)})`, { duration: 4000 });
+      }
     }
     setLines(newLines);
     setDirty(true);
   };
 
   const addProductToLine = (product: Product) => {
-    // Prevent adding out-of-stock products
     if (product.stock_quantity != null && product.stock_quantity <= 0) {
-      toast.error('This product is out of stock. Please restock before invoicing.');
+      toast.error(`"${product.name}" is out of stock (0 available). Please restock before invoicing.`, { duration: 5000 });
       return;
     }
     let newLines = [...lines];
-    // If product already exists on any line, just bump its quantity
     const existingIdx = newLines.findIndex((l) => l.product_id === product.id);
     if (existingIdx !== -1) {
       const existing = newLines[existingIdx];
       existing.quantity += 1;
       existing.subtotal = existing.quantity * existing.price;
+      warnIfOverStock(product.name, existing.quantity, product.stock_quantity);
     } else {
+      const customerPrice = customerPrices[product.id];
+      const usePrice = customerPrice ?? product.price;
       const emptyIdx = newLines.findIndex((l) => !l.product_id && !l.product_name);
       let targetIdx = emptyIdx;
       if (targetIdx === -1) {
@@ -228,10 +257,14 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
         product_name: product.name,
         category_name: product.category_name || '',
         quantity: 1,
-        price: product.price,
-        subtotal: product.price,
+        price: usePrice,
+        subtotal: usePrice,
         cost_price: product.cost_price,
+        stock_quantity: product.stock_quantity,
       };
+      if (customerPrice != null && customerPrice !== product.price) {
+        toast.success(`Using last price for ${product.name}: $${customerPrice.toFixed(2)} (default: $${product.price.toFixed(2)})`, { duration: 4000 });
+      }
     }
     setLines(newLines);
     setDirty(true);
@@ -258,8 +291,16 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
     const line = newLines[index];
     if (!line) return;
     if (field === 'quantity') {
-      line.quantity = Math.max(0, Number(value));
+      const newQty = Math.max(0, Number(value));
+      line.quantity = newQty;
       line.subtotal = line.quantity * line.price;
+      if (line.stock_quantity == null && line.product_id) {
+        const p = products.find((x) => x.id === line.product_id);
+        if (p) line.stock_quantity = p.stock_quantity;
+      }
+      if (line.stock_quantity != null && newQty > line.stock_quantity) {
+        toast.error(`Warning: "${line.product_name}" has only ${line.stock_quantity} in stock but quantity is set to ${newQty}.`, { duration: 5000 });
+      }
     } else if (field === 'price') {
       line.price = Number(value) || 0;
       line.subtotal = line.quantity * line.price;
@@ -319,6 +360,19 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
     if (validLines.length === 0) {
       toast.error('Add at least one product');
       return false;
+    }
+    const overStockLines = validLines.filter((l) => {
+      const stock = l.stock_quantity ?? products.find((p) => p.id === l.product_id)?.stock_quantity;
+      return stock != null && l.quantity > stock;
+    });
+    if (overStockLines.length > 0) {
+      const names = overStockLines.map((l) => {
+        const stock = l.stock_quantity ?? products.find((p) => p.id === l.product_id)?.stock_quantity ?? 0;
+        return `"${l.product_name}" (qty ${l.quantity}, only ${stock} in stock)`;
+      }).join('\n');
+      if (!confirm(`The following products exceed available stock:\n\n${names}\n\nDo you still want to save?`)) {
+        return false;
+      }
     }
     setSaving(true);
     const payload = {
@@ -515,61 +569,65 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
                       </tr>
                     </thead>
                     <tbody>
-                      {lines.map((line, idx) => (
-                        <tr key={idx} className="border-t border-gray-100 hover:bg-gray-50/50">
-                          <td className="py-2 px-4">{idx + 1}</td>
-                          <td className="py-2 px-4">
-                            {idx === firstEmptyLineIndex ? (
-                              <select
-                                value=""
-                                onChange={(e) => {
-                                  const id = e.target.value;
-                                  if (!id) return;
-                                  const p = products.find((x) => x.id === id);
-                                  if (p) selectProductForLine(idx, p);
+                      {lines.map((line, idx) => {
+                        const hasProduct = !!(line.product_id || line.product_name);
+                        const lineStock = line.stock_quantity ?? products.find((p) => p.id === line.product_id)?.stock_quantity;
+                        const overStock = hasProduct && lineStock != null && line.quantity > lineStock;
+                        return (
+                          <tr key={idx} className={`border-t border-gray-100 hover:bg-gray-50/50 ${overStock ? 'bg-red-50' : ''}`}>
+                            <td className="py-2 px-4">{idx + 1}</td>
+                            <td className="py-2 px-4">
+                              <SearchableProductDropdown
+                                products={products}
+                                value={line.product_id}
+                                displayName={line.product_name || undefined}
+                                onSelect={(p) => selectProductForLine(idx, { id: p.id, name: p.name, price: p.price ?? 0, cost_price: p.cost_price, category_name: p.category_name, stock_quantity: p.stock_quantity })}
+                                onBarcodeScan={(code) => {
+                                  adminApi.get(`/products/barcode/${encodeURIComponent(code)}`)
+                                    .then((r) => {
+                                      const prod = r.data;
+                                      if (prod?.id) selectProductForLine(idx, { id: prod.id, name: prod.name, price: prod.price ?? 0, cost_price: prod.cost_price, category_name: prod.category_name, stock_quantity: prod.stock_quantity });
+                                    })
+                                    .catch(() => toast.error('Product not found for this barcode'));
                                 }}
-                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
-                              >
-                                <option value="">Select product</option>
-                                {products.map((p) => (
-                                  <option key={p.id} value={p.id}>{p.name} (${(p.price ?? 0).toFixed(2)})</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span className="text-gray-900">{line.product_name || ''}</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-4 text-gray-600">{line.category_name || ''}</td>
-                          <td className="py-2 px-4 text-right text-gray-600">{(line.product_id || line.product_name) && (() => { const c = getLineCost(line); return typeof c === 'number' ? `$${c.toFixed(2)}` : '—'; })()}</td>
-                          <td className="py-2 px-4 text-right">
-                            {idx !== firstEmptyLineIndex && (line.product_id || line.product_name) ? (
-                              <input
-                                type="number"
-                                min={0}
-                                value={line.quantity}
-                                onChange={(e) => updateLine(idx, 'quantity', e.target.value)}
-                                className="w-16 text-right border border-gray-300 rounded px-2 py-1"
+                                placeholder="Search product or scan barcode…"
                               />
-                            ) : (
-                              <span className="text-gray-400">{line.quantity || ''}</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-4 text-right font-medium">{(line.product_id || line.product_name) ? `$${line.subtotal.toFixed(2)}` : ''}</td>
-                          <td className="py-2 px-4">
-                            {(line.product_id || line.product_name) && (
-                              <button type="button" onClick={() => removeLine(idx)} className="text-red-600 hover:bg-red-50 p-1 rounded">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                              {overStock && (
+                                <p className="text-xs text-red-600 mt-0.5">Only {lineStock} in stock</p>
+                              )}
+                            </td>
+                            <td className="py-2 px-4 text-gray-600">{line.category_name || ''}</td>
+                            <td className="py-2 px-4 text-right text-gray-600">{hasProduct && (() => { const c = getLineCost(line); return typeof c === 'number' ? `$${c.toFixed(2)}` : '—'; })()}</td>
+                            <td className="py-2 px-4 text-right">
+                              {hasProduct ? (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={line.quantity}
+                                  onChange={(e) => updateLine(idx, 'quantity', e.target.value)}
+                                  className={`w-16 text-right border rounded px-2 py-1 ${overStock ? 'border-red-400 text-red-700 bg-red-50' : 'border-gray-300'}`}
+                                />
+                              ) : (
+                                <span className="text-gray-400">{line.quantity || ''}</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-4 text-right font-medium">{hasProduct ? `$${line.subtotal.toFixed(2)}` : ''}</td>
+                            <td className="py-2 px-4">
+                              {hasProduct && (
+                                <button type="button" onClick={() => removeLine(idx)} className="text-red-600 hover:bg-red-50 p-1 rounded">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <p className="text-xs text-gray-500">
-                    Select product from the dropdown on the first empty line. Amount fills automatically. Scan barcode above and press Enter to add.
+                    Click any empty row to search or scan a barcode. Amount fills automatically.
                   </p>
                   <button
                     type="button"
@@ -678,7 +736,13 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
-                <input type="text" value={newCustomerForm.payment_terms} onChange={(e) => setNewCustomerForm((f) => ({ ...f, payment_terms: e.target.value }))} placeholder="e.g. Net 30" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <select value={newCustomerForm.payment_terms} onChange={(e) => setNewCustomerForm((f) => ({ ...f, payment_terms: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select payment terms</option>
+                  <option value="Due on receipt">Due on receipt</option>
+                  <option value="Net 7">Net 7</option>
+                  <option value="Net 15">Net 15</option>
+                  <option value="Net 30">Net 30</option>
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>

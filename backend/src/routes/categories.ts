@@ -1,5 +1,8 @@
 import mongoose from 'mongoose';
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import Category from '../models/Category';
 import SubCategory from '../models/SubCategory';
 import Product from '../models/Product';
@@ -7,6 +10,25 @@ import { authenticateAdmin, AuthRequest } from '../middleware/auth';
 import { z } from 'zod';
 
 const router = express.Router();
+
+const catUploadsDir = path.join(__dirname, '../../uploads/categories');
+if (!fs.existsSync(catUploadsDir)) fs.mkdirSync(catUploadsDir, { recursive: true });
+
+const catStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, catUploadsDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `cat-${Date.now()}${ext}`);
+  },
+});
+const catUpload = multer({
+  storage: catStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  },
+});
 
 // Admin: Delete ALL categories (and subcategories); clear category refs on products
 router.delete('/all', authenticateAdmin, async (req: AuthRequest, res) => {
@@ -18,6 +40,18 @@ router.delete('/all', authenticateAdmin, async (req: AuthRequest, res) => {
   } catch (error) {
     console.error('Delete all categories error:', error);
     res.status(500).json({ error: 'Failed to remove categories' });
+  }
+});
+
+// Upload category image
+router.post('/upload-image', authenticateAdmin, catUpload.single('image'), async (req: AuthRequest, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const imageUrl = `/uploads/categories/${req.file.filename}`;
+    res.json({ url: imageUrl });
+  } catch (error) {
+    console.error('Category image upload error:', error);
+    res.status(500).json({ error: 'Failed to upload image' });
   }
 });
 
@@ -60,7 +94,7 @@ router.post('/', authenticateAdmin, async (req: AuthRequest, res) => {
     const schema = z.object({
       name: z.string().min(1),
       description: z.string().optional(),
-      image_url: z.string().url().optional(),
+      image_url: z.string().optional(),
       display_order: z.number().int().default(0),
     });
 
@@ -100,7 +134,7 @@ router.put('/:id', authenticateAdmin, async (req: AuthRequest, res) => {
     const schema = z.object({
       name: z.string().min(1).optional(),
       description: z.string().optional(),
-      image_url: z.string().url().optional(),
+      image_url: z.string().optional(),
       display_order: z.number().int().optional(),
     });
 

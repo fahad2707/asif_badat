@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Eye, FileText, Truck, Search, X } from 'lucide-react';
+import { Plus, Eye, FileText, Truck, Search, X, Trash2 } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import SearchableProductDropdown from '@/components/admin/SearchableProductDropdown';
 
 interface POItem {
   product_id: string;
@@ -43,19 +44,15 @@ interface Product {
   id: string;
   name: string;
   cost_price?: number;
+  category_name?: string;
 }
 
 interface CreateRow {
   product_id: string;
   product_name: string;
+  category_name: string;
   qty: number;
   unit_cost: number;
-  cost_excl_tax: number;
-  tax_rate: number;
-  total_tax: number;
-  cost_incl_tax: number;
-  shipping: number;
-  total_price: number;
 }
 
 export default function PurchaseOrdersPage() {
@@ -71,8 +68,12 @@ export default function PurchaseOrdersPage() {
   const [vendorId, setVendorId] = useState('');
   const [billNum, setBillNum] = useState('');
   const [rows, setRows] = useState<CreateRow[]>([]);
+  const [shippingCost, setShippingCost] = useState(0);
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [savedPoId, setSavedPoId] = useState<string | null>(null);
+  const [showAddVendor, setShowAddVendor] = useState(false);
+  const [newVendorName, setNewVendorName] = useState('');
+  const [savingVendor, setSavingVendor] = useState(false);
 
   const fetchPOs = async () => {
     try {
@@ -126,20 +127,14 @@ export default function PurchaseOrdersPage() {
   };
 
   const addRow = () => {
-    const first = products[0];
     setRows([
       ...rows,
       {
-        product_id: first?.id ?? '',
-        product_name: first?.name ?? '',
+        product_id: '',
+        product_name: '',
+        category_name: '',
         qty: 1,
         unit_cost: 0,
-        cost_excl_tax: 0,
-        tax_rate: 0,
-        total_tax: 0,
-        cost_incl_tax: 0,
-        shipping: 0,
-        total_price: 0,
       },
     ]);
   };
@@ -150,29 +145,19 @@ export default function PurchaseOrdersPage() {
     if (field === 'product_id') {
       const p = products.find((x) => x.id === value);
       r.product_name = p?.name ?? r.product_name;
-      // Auto-fill unit cost from product's cost price (last purchase / current cost)
+      r.category_name = p?.category_name ?? '';
       r.unit_cost = p?.cost_price ?? 0;
+
+      const existingIdx = next.findIndex((row, i) => i !== idx && row.product_id === value && value !== '');
+      if (existingIdx !== -1) {
+        next[existingIdx] = { ...next[existingIdx], qty: next[existingIdx].qty + r.qty };
+        next.splice(idx, 1);
+        setRows(next);
+        return;
+      }
     }
-    if (field === 'qty' || field === 'unit_cost' || field === 'product_id') {
-      const qty = field === 'qty' ? Number(value) : r.qty;
-      const cost = field === 'unit_cost' ? Number(value) : r.unit_cost;
-      r.cost_excl_tax = qty * cost;
-      r.tax_rate = next[idx].tax_rate;
-      r.total_tax = Math.round(r.cost_excl_tax * (r.tax_rate / 100) * 100) / 100;
-      r.cost_incl_tax = r.cost_excl_tax + r.total_tax;
-      r.shipping = next[idx].shipping;
-      r.total_price = r.cost_incl_tax + r.shipping;
-    }
-    if (field === 'tax_rate') {
-      r.tax_rate = Number(value);
-      r.total_tax = Math.round(r.cost_excl_tax * (r.tax_rate / 100) * 100) / 100;
-      r.cost_incl_tax = r.cost_excl_tax + r.total_tax;
-      r.total_price = r.cost_incl_tax + r.shipping;
-    }
-    if (field === 'shipping') {
-      r.shipping = Number(value);
-      r.total_price = r.cost_incl_tax + r.shipping;
-    }
+    if (field === 'qty') r.qty = Number(value);
+    if (field === 'unit_cost') r.unit_cost = Number(value);
     next[idx] = r;
     setRows(next);
   };
@@ -198,7 +183,7 @@ export default function PurchaseOrdersPage() {
           quantity_ordered: r.qty,
           unit_cost: r.unit_cost,
         })),
-        tax_amount: validRows.reduce((s, r) => s + r.total_tax, 0),
+        shipping_cost: shippingCost,
         notes: billNum ? `Bill #${billNum}` : undefined,
       });
       toast.success('PO saved');
@@ -208,6 +193,7 @@ export default function PurchaseOrdersPage() {
       setVendorId('');
       setBillNum('');
       setRows([]);
+      setShippingCost(0);
       setSavedPoId(res.data?.id ?? null);
       setShowPdfModal(true);
       fetchPOs();
@@ -249,20 +235,16 @@ export default function PurchaseOrdersPage() {
               const emptyRow = (): CreateRow => ({
                 product_id: '',
                 product_name: '',
+                category_name: '',
                 qty: 1,
                 unit_cost: 0,
-                cost_excl_tax: 0,
-                tax_rate: 0,
-                total_tax: 0,
-                cost_incl_tax: 0,
-                shipping: 0,
-                total_price: 0,
               });
               setShowCreate(true);
               setPoNumber('');
               setPoDate(new Date().toISOString().slice(0, 10));
               setVendorId('');
               setBillNum('');
+              setShippingCost(0);
               setRows(Array.from({ length: 15 }, emptyRow));
             }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]"
@@ -341,8 +323,11 @@ export default function PurchaseOrdersPage() {
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full my-8 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b">
+            <div className="p-6 border-b flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">Create New PO</h2>
+              <button type="button" onClick={() => setShowCreate(false)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600" aria-label="Close">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             <form onSubmit={handleSavePO} className="p-6 space-y-6">
@@ -355,7 +340,7 @@ export default function PurchaseOrdersPage() {
                       <input type="text" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. P087684" />
                     </div>
                     <div className="pt-7">
-                      <button type="button" onClick={generatePoId} className="px-3 py-2 rounded-lg text-white text-sm font-medium bg-blue-600 hover:bg-blue-700">
+                      <button type="button" onClick={generatePoId} className="px-3 py-2 rounded-lg font-medium text-sm bg-[#0f766e] text-white hover:bg-[#0d5d57]">
                         Generate
                       </button>
                     </div>
@@ -366,8 +351,17 @@ export default function PurchaseOrdersPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Supplier Name *</label>
-                    <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2" required>
+                    <select
+                      value={vendorId}
+                      onChange={(e) => {
+                        if (e.target.value === '__add_new__') { setShowAddVendor(true); return; }
+                        setVendorId(e.target.value);
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      required
+                    >
                       <option value="">Select supplier</option>
+                      <option value="__add_new__">+ New supplier</option>
                       {vendors.map((v) => (
                         <option key={v.id} value={v.id}>{v.name}</option>
                       ))}
@@ -401,36 +395,33 @@ export default function PurchaseOrdersPage() {
                   </button>
                 </div>
                 <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                  <table className="w-full text-sm min-w-[640px]">
+                  <table className="w-full text-sm min-w-[480px]">
                     <thead className="bg-gray-50">
                       <tr>
+                        <th className="text-center py-3 px-3 text-sm font-medium text-gray-700 w-12">#</th>
                         <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Product</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Category</th>
                         <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Qty</th>
-                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Unit cost</th>
-                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Cost excl tax</th>
-                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Tax %</th>
-                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Total tax</th>
-                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Cost incl tax</th>
-                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Shipping</th>
-                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Line total</th>
+                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Unit Cost</th>
+                        <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Line Total</th>
                         <th className="w-10" />
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((r, idx) => (
                         <tr key={idx} className="border-t border-gray-100 hover:bg-gray-50/60">
+                          <td className="py-2 px-3 text-center text-sm text-gray-500">{idx + 1}</td>
                           <td className="py-2 px-4">
-                            <select
+                            <SearchableProductDropdown
+                              products={products}
                               value={r.product_id}
-                              onChange={(e) => updateRow(idx, 'product_id', e.target.value)}
-                              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
-                            >
-                              <option value="">Select product</option>
-                              {products.map((p) => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                              ))}
-                            </select>
+                              displayName={r.product_name || undefined}
+                              onSelect={(p) => updateRow(idx, 'product_id', p.id)}
+                              placeholder="Search product or scan barcode…"
+                              showPrice={false}
+                            />
                           </td>
+                          <td className="py-2 px-4 text-sm text-gray-600">{r.category_name || '—'}</td>
                           <td className="py-2 px-4 text-right">
                             <input
                               type="number"
@@ -447,37 +438,13 @@ export default function PurchaseOrdersPage() {
                               step={0.01}
                               value={r.unit_cost || ''}
                               onChange={(e) => updateRow(idx, 'unit_cost', e.target.value)}
-                              className="w-20 border border-gray-300 rounded px-2 py-1 text-sm text-right"
+                              className="w-24 border border-gray-300 rounded px-2 py-1 text-sm text-right"
                             />
                           </td>
-                          <td className="py-2 px-4 text-right text-sm">{r.cost_excl_tax.toFixed(2)}</td>
-                          <td className="py-2 px-4 text-right">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={0.5}
-                              value={r.tax_rate || ''}
-                              onChange={(e) => updateRow(idx, 'tax_rate', e.target.value)}
-                              className="w-16 border border-gray-300 rounded px-2 py-1 text-sm text-right"
-                            />
-                          </td>
-                          <td className="py-2 px-4 text-right text-sm">{r.total_tax.toFixed(2)}</td>
-                          <td className="py-2 px-4 text-right text-sm">{r.cost_incl_tax.toFixed(2)}</td>
-                          <td className="py-2 px-4 text-right">
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.01}
-                              value={r.shipping || ''}
-                              onChange={(e) => updateRow(idx, 'shipping', e.target.value)}
-                              className="w-20 border border-gray-300 rounded px-2 py-1 text-sm text-right"
-                            />
-                          </td>
-                          <td className="py-2 px-4 text-right text-sm font-medium">{r.total_price.toFixed(2)}</td>
+                          <td className="py-2 px-4 text-right text-sm font-medium">${(Number(r.qty) * Number(r.unit_cost)).toFixed(2)}</td>
                           <td className="py-2 px-4">
-                            <button type="button" onClick={() => removeRow(idx)} className="text-red-600 hover:bg-red-50 rounded p-1">
-                              <X className="w-4 h-4" />
+                            <button type="button" onClick={() => removeRow(idx)} className="text-gray-400 hover:text-red-600 hover:bg-red-50 rounded p-1" title="Remove item">
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
                         </tr>
@@ -485,6 +452,38 @@ export default function PurchaseOrdersPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Subtotal & Shipping */}
+                {(() => {
+                  const itemSubtotal = rows.reduce((s, r) => s + Number(r.qty) * Number(r.unit_cost), 0);
+                  const grandTotal = itemSubtotal + Number(shippingCost);
+                  return (
+                    <div className="flex justify-end mt-4">
+                      <div className="w-72 space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Subtotal</span>
+                          <span className="font-medium">${itemSubtotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">Shipping Cost</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={shippingCost || ''}
+                            onChange={(e) => setShippingCost(Number(e.target.value) || 0)}
+                            className="w-28 border border-gray-300 rounded px-2 py-1 text-sm text-right"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <div className="flex justify-between border-t pt-2 font-semibold text-gray-900">
+                          <span>Grand Total</span>
+                          <span>${grandTotal.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </section>
 
               <div className="flex justify-end gap-2 pt-4 border-t">
@@ -494,6 +493,47 @@ export default function PurchaseOrdersPage() {
                 <button type="submit" className="px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57]">
                   Save PO
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showAddVendor && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">+ Add new supplier</h3>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newVendorName.trim()) return;
+                setSavingVendor(true);
+                try {
+                  const { data } = await adminApi.post('/vendors', { name: newVendorName.trim() });
+                  toast.success('Supplier added');
+                  setVendors((prev) => [...prev, { id: data.id, name: data.name, supplier_id: data.supplier_id, state: data.state, city: data.city }]);
+                  setVendorId(data.id);
+                  setShowAddVendor(false);
+                  setNewVendorName('');
+                } catch (err: any) {
+                  toast.error(err.response?.data?.error || 'Failed to add supplier');
+                } finally {
+                  setSavingVendor(false);
+                }
+              }}
+            >
+              <input
+                type="text"
+                value={newVendorName}
+                onChange={(e) => setNewVendorName(e.target.value)}
+                placeholder="Supplier name"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4"
+                autoFocus
+                required
+              />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => { setShowAddVendor(false); setNewVendorName(''); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button type="submit" disabled={savingVendor} className="px-4 py-2 bg-[#0f766e] text-white rounded-lg hover:bg-[#0d5d57] disabled:opacity-50">{savingVendor ? 'Saving...' : 'Add'}</button>
               </div>
             </form>
           </div>

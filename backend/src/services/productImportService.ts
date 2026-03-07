@@ -19,8 +19,7 @@ export interface CanonicalProductRow {
   price: number;
   cost_price: number;
   sku: string | null;
-  barcode: string | null;
-  plu: string | null;
+  product_type: 'inventory' | 'non_inventory' | 'service';
   stock_quantity: number;
   tax_rate: number;
   is_active: boolean;
@@ -56,6 +55,8 @@ export interface ImportExecuteResult {
 }
 
 // ----- Column mapping: multiple possible headers → canonical key -----
+// Aligned with QuickBooks Online product import: Product/Service Name, SKU, Type, Sales Description,
+// Sales Price/Rate, Taxable, Purchase Cost, Quantity On Hand, Reorder Point. PLU and Barcode removed.
 const COLUMN_ALIASES: Record<string, string> = {
   category: 'category',
   'category name': 'category',
@@ -64,26 +65,38 @@ const COLUMN_ALIASES: Record<string, string> = {
   sub_category: 'subcategory',
   product_name: 'name',
   'product name': 'name',
+  'product/service name': 'name',
   name: 'name',
   price_usd: 'price',
   'price (usd)': 'price',
   selling_price: 'price',
+  'sales price': 'price',
+  'sales price/rate': 'price',
+  'sales_price/rate': 'price',
   price: 'price',
   cost_price: 'cost_price',
   'cost price': 'cost_price',
+  'purchase cost': 'cost_price',
   cost: 'cost_price',
   sku: 'sku',
-  barcode: 'barcode',
-  plu: 'plu',
   stock_quantity: 'stock_quantity',
   'stock quantity': 'stock_quantity',
+  'quantity on hand': 'stock_quantity',
+  quantity_on_hand: 'stock_quantity',
   stock: 'stock_quantity',
   tax_rate: 'tax_rate',
   'tax rate': 'tax_rate',
+  taxable: 'tax_rate',
   tax: 'tax_rate',
   status: 'status',
   description: 'description',
+  'sales description': 'description',
+  'purchase description': 'description',
   low_stock_threshold: 'low_stock_threshold',
+  'reorder point': 'low_stock_threshold',
+  reorder_point: 'low_stock_threshold',
+  type: 'product_type',
+  'product type': 'product_type',
 };
 
 function normalizeHeader(header: string): string {
@@ -148,11 +161,10 @@ export function normalizeRow(row: Record<string, string>, rowIndex: number): { d
   const category = cell('category') || cell('category_slug');
   const subcategory = cell('subcategory', 'sub_category');
   const name = cell('name', 'product_name');
+  const typeStr = (cell('product_type', 'type') || 'inventory').toLowerCase();
   const priceStr = (cell('price', 'price_usd', 'selling_price') || '').replace(/[$,\s]/g, '');
   const costStr = (cell('cost_price', 'cost') || '').replace(/[$,\s]/g, '');
   const sku = (cell('sku') || '').trim() || null;
-  const barcode = (cell('barcode') || '').trim() || null;
-  const plu = (cell('plu') || '').trim() || null;
   const stockStr = cell('stock_quantity', 'stock') || '0';
   const taxStr = cell('tax_rate', 'tax') || '0';
   const statusStr = (cell('status') || 'active').toLowerCase();
@@ -178,17 +190,20 @@ export function normalizeRow(row: Record<string, string>, rowIndex: number): { d
   if (Number.isNaN(tax_rate) || tax_rate < 0) errors.push('Invalid tax rate (using 0)');
   const low_stock_threshold = parseInt(lowStockStr, 10) || 10;
   const is_active = ['active', '1', 'true', 'yes'].includes(statusStr) || statusStr === '';
+  const product_type =
+    typeStr === 'service' ? 'service'
+    : typeStr === 'non_inventory' || typeStr === 'non-inventory' ? 'non_inventory'
+    : 'inventory';
 
   const data: CanonicalProductRow = {
     category: category || 'Uncategorized',
     subcategory: subcategory || '',
     name: name.trim(),
     description: description || undefined,
+    product_type,
     price: Math.round(price * 100) / 100,
     cost_price: Math.round((Number.isNaN(cost_price) ? 0 : cost_price) * 100) / 100,
     sku: sku ?? null,
-    barcode: barcode ?? null,
-    plu: plu ?? null,
     stock_quantity,
     tax_rate: Math.round((Number.isNaN(tax_rate) ? 0 : tax_rate) * 100) / 100,
     is_active,
@@ -217,14 +232,6 @@ function nextSku(used: Set<string>): string {
   const sku = `EDI-${String(n).padStart(4, '0')}`;
   used.add(sku);
   return sku;
-}
-
-/** Generate unique 12-digit numeric barcode. */
-function nextBarcode(used: Set<string>): string {
-  let n = 100000000000;
-  while (used.has(String(n))) n++;
-  used.add(String(n));
-  return String(n);
 }
 
 /**
@@ -313,8 +320,6 @@ export async function executeImport(
   session.startTransaction();
   const usedSlugs = new Set<string>(await Product.distinct('slug', {}, { session }));
   const usedSkus = new Set<string>((await Product.distinct('sku', { sku: { $exists: true, $nin: [null, ''] } }, { session })) as string[]);
-  const usedBarcodes = new Set<string>((await Product.distinct('barcode', { barcode: { $exists: true, $nin: [null, ''] } }, { session })) as string[]);
-  const usedPlus = new Set<string>((await Product.distinct('plu', { plu: { $exists: true, $nin: [null, ''] } }, { session })) as string[]);
 
   const categoryByName = new Map<string, mongoose.Types.ObjectId>();
   const subcategoryByKey = new Map<string, mongoose.Types.ObjectId>(); // "categoryId|subName"
@@ -385,16 +390,6 @@ export async function executeImport(
         const slug = makeSlug(data.name, usedSlugs);
         const skuRaw = (data.sku && data.sku.trim()) || null;
         const sku = skuRaw && !usedSkus.has(skuRaw) ? (usedSkus.add(skuRaw), skuRaw) : nextSku(usedSkus);
-        const barcodeRaw = (data.barcode && data.barcode.trim()) || null;
-        const barcode = barcodeRaw && !usedBarcodes.has(barcodeRaw) ? (usedBarcodes.add(barcodeRaw), barcodeRaw) : nextBarcode(usedBarcodes);
-        let pluToStore: string | undefined;
-        if (data.plu && data.plu.trim()) {
-          const p = data.plu.trim();
-          if (!usedPlus.has(p)) {
-            usedPlus.add(p);
-            pluToStore = p;
-          }
-        }
 
         await Product.create(
           [
@@ -402,14 +397,12 @@ export async function executeImport(
               name: data.name,
               slug,
               description: data.description,
-              product_type: 'inventory',
+              product_type: data.product_type,
               price: data.price,
               cost_price: data.cost_price,
               category_id: categoryId,
               sub_category_id: subCategoryId ?? undefined,
               sku,
-              barcode,
-              ...(pluToStore !== undefined && { plu: pluToStore }),
               stock_quantity: data.stock_quantity,
               low_stock_threshold: data.low_stock_threshold,
               tax_rate: data.tax_rate,
@@ -421,7 +414,7 @@ export async function executeImport(
         existingByKey.add(key);
         imported++;
       } catch (err: any) {
-        const msg = err.code === 11000 ? 'Duplicate barcode, PLU, or SKU' : (err.message || 'Insert failed');
+        const msg = err.code === 11000 ? 'Duplicate SKU' : (err.message || 'Insert failed');
         errors.push({ row: rowIndex, message: msg });
         transactionAborted = true;
         break;

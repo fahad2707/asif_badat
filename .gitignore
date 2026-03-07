@@ -5,3 +5,5 @@ node_modules
 dist
 coverage
 .DS_Store
+# Generated uploads (invoices, customer docs)
+backend/uploads

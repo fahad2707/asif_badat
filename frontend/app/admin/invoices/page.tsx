@@ -108,6 +108,12 @@ export default function InvoicesPage() {
   };
 
   const statusDisplay = (inv: Invoice) => (inv.payment_status || 'unpaid').toLowerCase() === 'paid' ? 'Paid' : 'Unpaid';
+  const balance = (inv: Invoice) => (inv.total_amount ?? 0) - (inv.amount_paid ?? 0);
+  const balanceLabel = (inv: Invoice) => {
+    const b = balance(inv);
+    if (b <= 0) return { text: 'Overpaid', value: Math.abs(b), className: 'text-blue-600' };
+    return { text: 'Due', value: b, className: 'text-amber-700' };
+  };
 
   return (
     <div>
@@ -201,6 +207,8 @@ export default function InvoicesPage() {
                 <th className="text-left py-3 px-4 text-sm font-medium">Number</th>
                 <th className="text-left py-3 px-4 text-sm font-medium">Customer</th>
                 <th className="text-right py-3 px-4 text-sm font-medium">Amount</th>
+                <th className="text-right py-3 px-4 text-sm font-medium">Paid</th>
+                <th className="text-right py-3 px-4 text-sm font-medium">Balance</th>
                 <th className="text-left py-3 px-4 text-sm font-medium">Status</th>
                 <th className="text-right py-3 px-4 text-sm font-medium">Actions</th>
               </tr>
@@ -225,6 +233,19 @@ export default function InvoicesPage() {
                   </td>
                   <td className="py-3 px-4 text-right font-semibold text-gray-900">
                     ${parseFloat(String(invoice.total_amount)).toFixed(2)}
+                  </td>
+                  <td className="py-3 px-4 text-right text-gray-700">
+                    ${parseFloat(String(invoice.amount_paid ?? 0)).toFixed(2)}
+                  </td>
+                  <td className="py-3 px-4 text-right">
+                    {(() => {
+                      const bl = balanceLabel(invoice);
+                      return (
+                        <span className={`text-sm font-medium ${bl.className}`} title={bl.value === 0 ? 'Fully paid' : bl.text}>
+                          {bl.value === 0 ? '—' : `${bl.text}: $${bl.value.toFixed(2)}`}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="py-3 px-4">
                     <span

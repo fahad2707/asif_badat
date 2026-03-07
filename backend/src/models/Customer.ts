@@ -65,7 +65,7 @@ const CustomerSchema = new Schema<ICustomer>(
 
 CustomerSchema.index({ phone: 1 });
 CustomerSchema.index({ email: 1 });
-CustomerSchema.index({ customer_code: 1 });
+// customer_code already has unique: true in schema, no need for duplicate index
 CustomerSchema.index({ name: 'text', company: 'text' });
 
 export default mongoose.model<ICustomer>('Customer', CustomerSchema);

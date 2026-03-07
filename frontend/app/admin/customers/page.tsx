@@ -598,13 +598,17 @@ export default function CustomersPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Net 30"
+                  <select
                     value={form.payment_terms || ''}
                     onChange={(e) => { setForm({ ...form, payment_terms: e.target.value }); setCustomerFormDirty(true); }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f766e] focus:border-[#0f766e]"
-                  />
+                  >
+                    <option value="">Select payment terms</option>
+                    <option value="Due on receipt">Due on receipt</option>
+                    <option value="Net 7">Net 7</option>
+                    <option value="Net 15">Net 15</option>
+                    <option value="Net 30">Net 30</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
