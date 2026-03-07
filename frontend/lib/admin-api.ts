@@ -1,8 +1,7 @@
 import axios from 'axios';
 
-// Call backend directly so dashboard/products/etc load. Default: http://localhost:5000/api
-// Set NEXT_PUBLIC_API_URL to override (e.g. /api to use Next.js rewrites, or another server).
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+// In browser use same-origin /api (server proxy uses BACKEND_URL at runtime).
+const API_URL = typeof window !== 'undefined' ? '/api' : (process.env.NEXT_PUBLIC_API_URL?.trim() || 'http://localhost:5000/api');
 
 const adminApi = axios.create({
   baseURL: API_URL,

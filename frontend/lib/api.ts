@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.trim()) || 'http://localhost:5000/api';
+// Use same-origin /api; server proxies to backend (BACKEND_URL on server).
+const API_URL = typeof window !== 'undefined' ? '/api' : (process.env.NEXT_PUBLIC_API_URL?.trim() || 'http://localhost:5000/api');
 
 const api = axios.create({
   baseURL: API_URL,
