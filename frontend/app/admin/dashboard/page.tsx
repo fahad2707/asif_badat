@@ -16,7 +16,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { DollarSign, ShoppingCart, TrendingUp, Wallet, ClipboardList, MapPin, Tag, AlertTriangle } from 'lucide-react';
+import { DollarSign, ShoppingCart, TrendingUp, Wallet, ClipboardList, Tag, AlertTriangle } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -27,10 +27,11 @@ export default function AdminDashboard() {
   const [data, setData] = useState<{
     totalSales?: number;
     totalPurchases?: number;
+    totalCOGS?: number;
+    totalExpenses?: number;
     netProfit?: number;
     totalReceivable?: number;
     totalPayable?: number;
-    topSalesLocation?: string;
     topSellingItem?: string;
     salesTrend?: Array<{ month: string; sales: number }>;
     top10Customers?: Array<{ name: string; sales: number }>;
@@ -70,12 +71,11 @@ export default function AdminDashboard() {
   if (!data) return null;
 
   const kpis = [
-    { title: 'Total Sales', value: `$${Number(data.totalSales || 0).toLocaleString()}`, icon: TrendingUp, color: 'text-green-600' },
-    { title: 'Total Purchases', value: `$${Number(data.totalPurchases || 0).toLocaleString()}`, icon: ShoppingCart, color: 'text-blue-600' },
-    { title: 'Net Profit', value: `$${Number(data.netProfit || 0).toLocaleString()}`, icon: DollarSign, color: 'text-emerald-700' },
-    { title: 'Total Receivable', value: `$${Number(data.totalReceivable || 0).toLocaleString()}`, icon: Wallet, color: 'text-amber-600' },
-    { title: 'Total Payable', value: `$${Number(data.totalPayable || 0).toLocaleString()}`, icon: ClipboardList, color: 'text-gray-600' },
-    { title: 'Top Sales Location', value: data.topSalesLocation || '—', icon: MapPin, color: 'text-teal-600' },
+    { title: 'Total Sales', value: `$${Number(data.totalSales ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: TrendingUp, color: 'text-green-600' },
+    { title: 'Total Purchases', value: `$${Number(data.totalPurchases ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: ShoppingCart, color: 'text-blue-600' },
+    { title: 'Net Profit', value: `$${Number(data.netProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: 'text-emerald-700' },
+    { title: 'Total Receivable', value: `$${Number(data.totalReceivable ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: Wallet, color: 'text-amber-600' },
+    { title: 'Total Payable', value: `$${Number(data.totalPayable ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: ClipboardList, color: 'text-gray-600' },
     { title: 'Top Selling Item', value: data.topSellingItem || '—', icon: Tag, color: 'text-teal-600' },
   ];
 
@@ -85,7 +85,7 @@ export default function AdminDashboard() {
       <p className="text-gray-600 mt-1">Key trends and business insights</p>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4 mt-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mt-6">
         {kpis.map((k) => {
           const Icon = k.icon;
           return (
@@ -102,6 +102,17 @@ export default function AdminDashboard() {
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-700">
+        <p className="font-medium text-gray-900 mb-1">Calculation (synced with invoices, POS, orders, POs &amp; expenses)</p>
+        <p>
+          <span className="font-medium">Total Sales</span> (${Number(data.totalSales ?? 0).toFixed(2)})
+          {' − COGS '}(${Number(data.totalCOGS ?? 0).toFixed(2)})
+          {' − Expenses '}(${Number(data.totalExpenses ?? 0).toFixed(2)})
+          {' = '}
+          <span className="font-semibold text-[#0f766e]">Net Profit ${Number(data.netProfit ?? 0).toFixed(2)}</span>
+        </p>
       </div>
 
       {Number(data.lowStockCount) > 0 && (
@@ -121,12 +132,12 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl shadow border border-gray-100 p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Sales Trend</h2>
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={data.salesTrend || []}>
+            <LineChart data={Array.isArray(data.salesTrend) && data.salesTrend.length > 0 ? data.salesTrend : [{ month: new Date().toISOString().slice(0, 7), sales: 0 }]}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: number) => [`$${Number(v).toLocaleString()}`, 'Sales']} />
-              <Line type="monotone" dataKey="sales" stroke="#0f766e" strokeWidth={2} dot={false} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v))} />
+              <Tooltip formatter={(v: number) => [`$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Sales']} labelFormatter={(label) => `Month: ${label}`} />
+              <Line type="monotone" dataKey="sales" stroke="#0f766e" strokeWidth={2} dot={{ r: 3 }} name="Sales" />
             </LineChart>
           </ResponsiveContainer>
         </div>

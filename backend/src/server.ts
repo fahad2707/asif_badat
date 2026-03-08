@@ -33,6 +33,7 @@ import shipmentRoutes from './modules/shipping/routes/shipments';
 import expenseRoutes from './modules/expenses/routes/expenses';
 import reportRoutes from './modules/reports/routes/reports';
 import onlineOrderRoutes from './routes/online-orders';
+import onlineOrderRoutes from './routes/online-orders';
 
 dotenv.config();
 
@@ -108,6 +109,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/returns', returnsRoutes);
 app.use('/api/receipts', receiptsRoutes);
 app.use('/api/credit-memos', creditMemoRoutes);
+app.use('/api/online-orders', onlineOrderRoutes);
 app.use('/api/online-orders', onlineOrderRoutes);
 app.use('/api/shipments', shipmentRoutes);
 app.use('/api/expenses', expenseRoutes);

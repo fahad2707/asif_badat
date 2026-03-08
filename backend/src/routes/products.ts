@@ -111,6 +111,7 @@ router.get('/', async (req, res) => {
         committed_quantity: committed,
         available_quantity: onHand - committed,
         low_stock_threshold: product.low_stock_threshold,
+        tax_rate: product.tax_rate != null ? Number(product.tax_rate) : 0,
         is_active: product.is_active,
         created_at: product.created_at,
       };

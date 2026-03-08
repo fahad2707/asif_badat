@@ -16,7 +16,6 @@ import BankAccount from '../models/BankAccount';
 import Category from '../models/Category';
 import CreditMemo from '../modules/credit-memo/models/CreditMemo';
 import Customer from '../models/Customer';
-import CustomerProductPrice from '../models/CustomerProductPrice';
 import Expense from '../modules/expenses/models/Expense';
 import ExpenseCategory from '../modules/expenses/models/ExpenseCategory';
 import Invoice from '../models/Invoice';
@@ -24,7 +23,6 @@ import LedgerEntry from '../models/LedgerEntry';
 import Order from '../models/Order';
 import OrderItem from '../models/OrderItem';
 import OrderStatusHistory from '../models/OrderStatusHistory';
-import OnlineOrder from '../models/OnlineOrder';
 import OTP from '../models/OTP';
 import Payment from '../models/Payment';
 import PaymentMethod from '../models/PaymentMethod';
@@ -48,8 +46,6 @@ const COLLECTIONS: { name: string; model: { deleteMany: (filter?: object) => Pro
   { name: 'OrderItems', model: OrderItem },
   { name: 'OrderStatusHistories', model: OrderStatusHistory },
   { name: 'Orders', model: Order },
-  { name: 'OnlineOrders', model: OnlineOrder },
-  { name: 'CustomerProductPrices', model: CustomerProductPrice },
   { name: 'PurchaseOrders', model: PurchaseOrder },
   { name: 'Expenses', model: Expense },
   { name: 'ExpenseCategories', model: ExpenseCategory },

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Eye, FileText, Truck, Search, X, Trash2 } from 'lucide-react';
+import { Plus, Eye, FileText, Truck, Search, X, Trash2, Download } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -306,10 +306,36 @@ export default function PurchaseOrdersPage() {
                       <td className="py-2 px-4 text-sm">{pmtStatus(po)}</td>
                       <td className="py-2 px-4 text-sm">{shippingStatus(po)}</td>
                       <td className="py-2 px-4 text-right">
-                        <Link href={`/admin/purchase-orders/${po.id}`} className="inline-flex items-center gap-1 text-[#0f766e] hover:underline text-sm font-medium">
-                          <Eye className="w-4 h-4" />
-                          View
-                        </Link>
+                        <div className="flex items-center justify-end gap-2">
+                          <Link href={`/admin/purchase-orders/${po.id}`} className="inline-flex items-center gap-1 text-[#0f766e] hover:underline text-sm font-medium">
+                            <Eye className="w-4 h-4" />
+                            View
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const res = await adminApi.get(`/purchase-orders/${po.id}/pdf`, { responseType: 'blob' });
+                                const url = window.URL.createObjectURL(new Blob([res.data]));
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `po-${po.po_number || po.id}.pdf`;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                window.URL.revokeObjectURL(url);
+                                toast.success('PDF downloaded');
+                              } catch {
+                                toast.error('Failed to download PDF');
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 text-[#0f766e] hover:underline text-sm font-medium"
+                            title="Download PDF"
+                          >
+                            <Download className="w-4 h-4" />
+                            Download
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))

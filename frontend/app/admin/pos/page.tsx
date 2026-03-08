@@ -15,7 +15,7 @@ interface Product {
   name: string;
   price: number;
   cost_price?: number;
-  stock_quantity: number;
+  stock_quantity?: number | null;
   barcode?: string;
   plu?: string;
   sku?: string;
@@ -110,6 +110,7 @@ export default function POSPage() {
   const [saleType, setSaleType] = useState<'pos' | 'website' | 'store_pickup'>('pos');
   
   const [loading, setLoading] = useState(false);
+  const [productsLoading, setProductsLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const pluInputRef = useRef<HTMLInputElement>(null);
@@ -133,11 +134,14 @@ export default function POSPage() {
   }, []);
 
   const fetchProducts = async () => {
+    setProductsLoading(true);
     try {
-      const response = await adminApi.get('/products');
+      const response = await adminApi.get('/products?limit=500');
       setProducts(response.data.products || []);
     } catch (error) {
       toast.error('Failed to load products');
+    } finally {
+      setProductsLoading(false);
     }
   };
 
@@ -184,14 +188,16 @@ export default function POSPage() {
   };
 
   const addToCart = (product: Product) => {
-    if (product.stock_quantity <= 0) {
+    const stock = product.stock_quantity ?? null;
+    if (stock !== null && stock <= 0) {
       toast.error(`${product.name} is out of stock`);
       return;
     }
 
     const existingItem = cart.find((item) => item.product.id === product.id);
     if (existingItem) {
-      if (existingItem.quantity >= product.stock_quantity) {
+      const maxQty = stock === null ? 999999 : stock;
+      if (existingItem.quantity >= maxQty) {
         toast.error('Insufficient stock');
         return;
       }
@@ -212,7 +218,8 @@ export default function POSPage() {
     const item = cart.find((i) => i.product.id === productId);
     if (!item) return;
 
-    if (quantity > item.product.stock_quantity) {
+    const maxQty = item.product.stock_quantity ?? 999999;
+    if (quantity > maxQty) {
       toast.error('Insufficient stock');
       return;
     }
@@ -420,14 +427,23 @@ export default function POSPage() {
             {/* Products Grid */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <h2 className="text-xl font-semibold mb-4">Products</h2>
+              {productsLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-10 h-10 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="ml-3 text-gray-500">Loading products…</span>
+                </div>
+              ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-[500px] overflow-y-auto">
-                {filteredProducts.map((product) => (
+                {filteredProducts.map((product) => {
+                  const sq = product.stock_quantity ?? null;
+                  const outOfStock = sq !== null && sq <= 0;
+                  return (
                   <button
                     key={product.id}
                     onClick={() => addToCart(product)}
-                    disabled={product.stock_quantity <= 0}
+                    disabled={outOfStock}
                     className={`p-4 border-2 rounded-xl hover:border-primary-500 hover:shadow-md text-left transition-all ${
-                      product.stock_quantity <= 0
+                      outOfStock
                         ? 'opacity-50 cursor-not-allowed border-gray-200'
                         : 'border-gray-200 cursor-pointer'
                     }`}
@@ -448,19 +464,22 @@ export default function POSPage() {
                       </p>
                       <span
                         className={`text-xs px-2 py-1 rounded ${
-                          product.stock_quantity > 10
+                          sq === null
+                            ? 'bg-gray-100 text-gray-600'
+                            : sq > 10
                             ? 'bg-green-100 text-green-700'
-                            : product.stock_quantity > 0
+                            : sq > 0
                             ? 'bg-yellow-100 text-yellow-700'
                             : 'bg-red-100 text-red-700'
                         }`}
                       >
-                        {product.stock_quantity} in stock
+                        {sq === null ? '—' : `${sq} in stock`}
                       </span>
                     </div>
                   </button>
-                ))}
+                );})}
               </div>
+              )}
             </div>
           </div>
 

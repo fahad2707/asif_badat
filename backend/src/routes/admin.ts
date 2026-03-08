@@ -8,6 +8,7 @@ import PurchaseOrder from '../models/PurchaseOrder';
 import Customer from '../models/Customer';
 import Vendor from '../models/Vendor';
 import Category from '../models/Category';
+import Expense from '../modules/expenses/models/Expense';
 import { authenticateAdmin, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
@@ -41,16 +42,53 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
     }).lean();
     const invoiceRevenue = invoices.reduce((sum, inv: any) => sum + (inv.total_amount || 0), 0);
 
-    const totalSales = Number(onlineRevenue) + Number(offlineRevenue) + Number(invoiceRevenue);
+    const totalSales = Math.round((Number(onlineRevenue) + Number(offlineRevenue) + Number(invoiceRevenue)) * 100) / 100;
 
-    // Total purchases (POs)
+    // Total purchases (POs) in period
     const pos_agg = await PurchaseOrder.aggregate([
       { $match: { created_at: { $gte: startDate } } },
       { $group: { _id: null, total: { $sum: '$total_amount' } } },
     ]);
-    const totalPurchases = Number(pos_agg[0]?.total || 0);
+    const totalPurchases = Math.round(Number(pos_agg[0]?.total || 0) * 100) / 100;
 
-    const netProfit = totalSales - totalPurchases;
+    // COGS: cost of goods sold (orders + POS + invoices) using product cost_price
+    let totalCOGS = 0;
+    const orderIds = orders.map((o: any) => o._id);
+    const orderItemsCogs = await OrderItem.find({ order_id: { $in: orderIds } })
+      .populate('product_id', 'cost_price')
+      .lean();
+    for (const item of orderItemsCogs as any[]) {
+      const cost = item.product_id?.cost_price ?? 0;
+      totalCOGS += (item.quantity || 0) * cost;
+    }
+    for (const sale of posSales as any[]) {
+      for (const it of sale.items || []) {
+        if (!it.product_id) continue;
+        const prod = await Product.findById(it.product_id).select('cost_price').lean();
+        const cost = (prod as any)?.cost_price ?? 0;
+        totalCOGS += (it.quantity || 0) * cost;
+      }
+    }
+    for (const inv of invoices as any[]) {
+      for (const it of inv.items || []) {
+        const productId = it.product_id;
+        if (!productId) continue;
+        const prod = await Product.findById(productId).select('cost_price').lean();
+        const cost = (prod as any)?.cost_price ?? 0;
+        totalCOGS += (it.quantity || 0) * cost;
+      }
+    }
+
+    // Total expenses in period (not deleted)
+    const endDate = new Date();
+    const expenseAgg = await Expense.aggregate([
+      { $match: { date: { $gte: startDate, $lte: endDate }, $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    const totalExpenses = Number(expenseAgg[0]?.total || 0);
+
+    // Net profit = Total Sales - COGS - Expenses (precise)
+    const netProfit = totalSales - totalCOGS - totalExpenses;
 
     // Receivable: from invoices (total_amount - amount_paid for open invoices)
     const totalReceivable = invoices.reduce((sum, inv: any) => {
@@ -61,7 +99,7 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
     // Payable: total PO amount in period (simple approximation)
     const totalPayable = Number(pos_agg[0]?.total || 0);
 
-    // Top sales location: by pickup_location (orders) + customer_address (invoices)
+    // Sales by location (for charts; top sales location box removed)
     const locMap = new Map<string, number>();
     orders.forEach((o: any) => {
       const loc = o.pickup_location || 'Unknown';
@@ -71,8 +109,6 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
       const loc = inv.customer_address || 'Unknown';
       locMap.set(loc, (locMap.get(loc) || 0) + (inv.total_amount || 0));
     });
-    const topSalesLocation =
-      Array.from(locMap.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
 
     // Top selling item: derive from website orders + manual invoices
     const orderItems = await OrderItem.find({
@@ -94,9 +130,10 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
     const topSellingItem =
       Array.from(categoryRevenue.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
 
-    // Sales trend (monthly)
+    // Sales trend (monthly): orders + POS + invoices
     const monthMap = new Map<string, number>();
-    for (let i = 0; i < 24; i++) {
+    const monthsToShow = Math.min(24, Math.ceil(days / 30) + 1);
+    for (let i = 0; i < monthsToShow; i++) {
       const d = new Date();
       d.setMonth(d.getMonth() - i);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -105,16 +142,21 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
     orders.forEach((o: any) => {
       const d = new Date(o.created_at);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (monthMap.has(key)) monthMap.set(key, (monthMap.get(key) || 0) + (o.total_amount || 0));
+      monthMap.set(key, (monthMap.get(key) || 0) + (o.total_amount || 0));
     });
     posSales.forEach((s: any) => {
       const d = new Date(s.created_at);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (monthMap.has(key)) monthMap.set(key, (monthMap.get(key) || 0) + (s.total_amount || 0));
+      monthMap.set(key, (monthMap.get(key) || 0) + (s.total_amount || 0));
+    });
+    invoices.forEach((inv: any) => {
+      const d = new Date(inv.created_at);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthMap.set(key, (monthMap.get(key) || 0) + (inv.total_amount || 0));
     });
     const salesTrend = Array.from(monthMap.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([month, sales]) => ({ month, sales }));
+      .map(([month, sales]) => ({ month, sales: Math.round(sales * 100) / 100 }));
 
     // Top 10 customers (by order total; we don't have customer_id on Order, use order count / total as proxy or leave from Receipts/Customer)
     // Top 10 customers from manual invoices
@@ -261,19 +303,20 @@ router.get('/dashboard', authenticateAdmin, async (req: AuthRequest, res) => {
 
     res.json({
       revenue: totalSales,
+      totalSales,
+      totalPurchases,
+      totalCOGS: Math.round(totalCOGS * 100) / 100,
+      totalExpenses: Math.round(totalExpenses * 100) / 100,
+      netProfit: Math.round(netProfit * 100) / 100,
+      totalReceivable,
+      totalPayable,
+      topSellingItem,
+      salesTrend,
       orders: invoices.length,
       onlineSales: Number(invoiceRevenue),
       offlineSales: Number(offlineRevenue),
       lowStockCount: Number(lowStockCount),
       topProducts: Array.isArray(topProducts) ? topProducts : [],
-      totalSales,
-      totalPurchases,
-      netProfit,
-      totalReceivable,
-      totalPayable,
-      topSalesLocation,
-      topSellingItem,
-      salesTrend,
       top10Customers,
       purchaseByLocation,
       purchaseByCategory,

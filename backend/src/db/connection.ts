@@ -5,37 +5,23 @@ dotenv.config();
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/express_distributors';
 
-const CONNECT_OPTIONS = {
-  serverSelectionTimeoutMS: 30000,
-  socketTimeoutMS: 45000,
-  heartbeatFrequencyMS: 10000,
-  maxPoolSize: 10,
-  minPoolSize: 0,
-  retryReads: true,
-  retryWrites: true,
-};
-
-async function connectWithRetry(retries = 5): Promise<void> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      await mongoose.connect(MONGODB_URI, CONNECT_OPTIONS);
-      console.log('✅ MongoDB connected successfully');
-      return;
-    } catch (error) {
-      console.error(`❌ MongoDB connection attempt ${i + 1}/${retries} failed:`, (error as Error).message);
-      if (i < retries - 1) {
-        const delay = 3000 * (i + 1);
-        console.log(`🔄 Retrying in ${delay / 1000}s...`);
-        await new Promise((r) => setTimeout(r, delay));
-      } else {
-        console.error('❌ MongoDB connection error:', error);
-        process.exit(1);
-      }
-    }
+const connectDB = async () => {
+  try {
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
+      heartbeatFrequencyMS: 10000,
+      maxPoolSize: 10,
+      minPoolSize: 2,
+      retryReads: true,
+      retryWrites: true,
+    });
+    console.log('✅ MongoDB connected successfully');
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error);
+    process.exit(1);
   }
-}
-
-const connectDB = async () => connectWithRetry();
+};
 
 let reconnecting = false;
 mongoose.connection.on('disconnected', () => {
@@ -45,7 +31,7 @@ mongoose.connection.on('disconnected', () => {
     setTimeout(async () => {
       try {
         console.log('🔄 Attempting MongoDB reconnection…');
-        await mongoose.connect(MONGODB_URI, CONNECT_OPTIONS);
+        await mongoose.connect(MONGODB_URI);
         console.log('✅ MongoDB reconnected successfully');
       } catch (err) {
         console.error('❌ MongoDB reconnection failed:', err);

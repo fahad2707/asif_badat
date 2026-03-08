@@ -37,12 +37,6 @@ export default function VendorsPage() {
   const [filter, setFilter] = useState('All');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Vendor | null>(null);
-  const [payVendor, setPayVendor] = useState<Vendor | null>(null);
-  const [payAmount, setPayAmount] = useState('');
-  const [payMethod, setPayMethod] = useState<'cash' | 'card' | 'check' | 'digital' | 'other'>('cash');
-  const [payReference, setPayReference] = useState('');
-  const [payNotes, setPayNotes] = useState('');
-  const [paySubmitting, setPaySubmitting] = useState(false);
   const [states, setStates] = useState<string[]>([]);
   const [cities, setCities] = useState<string[]>([]);
   const [form, setForm] = useState<Partial<Vendor>>({
@@ -254,22 +248,6 @@ export default function VendorsPage() {
                       <td className="py-2 px-4 text-sm text-right">${Number(v.open_balance ?? v.balance ?? 0).toFixed(2)}</td>
                       <td className="py-2 px-4 text-sm text-right">${Number(v.paid_balance ?? v.payments ?? 0).toFixed(2)}</td>
                       <td className="py-2 px-4 text-right">
-                        {(Number(v.open_balance ?? v.balance ?? 0) > 0) && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPayVendor(v);
-                              setPayAmount(String(Number(v.open_balance ?? v.balance ?? 0).toFixed(2)));
-                              setPayMethod('cash');
-                              setPayReference('');
-                              setPayNotes('');
-                            }}
-                            className="text-white bg-[#0f766e] hover:bg-[#0d5d57] text-sm font-medium px-3 py-1.5 rounded-lg mr-2"
-                          >
-                            Pay Now
-                          </button>
-                        )}
                         <button
                           type="button"
                           onClick={(e) => {
@@ -299,104 +277,6 @@ export default function VendorsPage() {
           </div>
         )}
       </div>
-
-      {payVendor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="text-xl font-bold text-gray-900">Pay supplier</h2>
-              <button type="button" onClick={() => setPayVendor(null)} className="p-1 hover:bg-gray-100 rounded">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form
-              className="p-4 space-y-4"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const amount = parseFloat(payAmount);
-                if (!payVendor || isNaN(amount) || amount <= 0) {
-                  toast.error('Enter a valid amount');
-                  return;
-                }
-                setPaySubmitting(true);
-                try {
-                  await adminApi.post(`/vendors/${payVendor.id}/payments`, {
-                    amount: Math.round(amount * 100) / 100,
-                    method: payMethod,
-                    reference: payReference.trim() || undefined,
-                    notes: payNotes.trim() || undefined,
-                  });
-                  toast.success('Payment recorded');
-                  setPayVendor(null);
-                  fetchVendors();
-                } catch (err: any) {
-                  toast.error(err.response?.data?.error || 'Failed to record payment');
-                } finally {
-                  setPaySubmitting(false);
-                }
-              }}
-            >
-              <p className="text-sm text-gray-600">
-                Paying <span className="font-medium text-gray-900">{payVendor.name}</span> — Open balance: ${Number(payVendor.open_balance ?? payVendor.balance ?? 0).toFixed(2)}
-              </p>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment method</label>
-                <select
-                  value={payMethod}
-                  onChange={(e) => setPayMethod(e.target.value as typeof payMethod)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                >
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="check">Check</option>
-                  <option value="digital">Digital</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reference (e.g. check #)</label>
-                <input
-                  type="text"
-                  value={payReference}
-                  onChange={(e) => setPayReference(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="Optional"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                <textarea
-                  value={payNotes}
-                  onChange={(e) => setPayNotes(e.target.value)}
-                  rows={2}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setPayVendor(null)} className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
-                  Cancel
-                </button>
-                <button type="submit" disabled={paySubmitting} className="px-4 py-2 rounded-lg text-white font-medium bg-[#0f766e] hover:bg-[#0d5d57] disabled:opacity-50">
-                  {paySubmitting ? 'Recording…' : 'Record payment'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

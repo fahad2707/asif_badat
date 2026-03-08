@@ -22,13 +22,8 @@ export default function AdminLoginPage() {
       router.push('/admin/dashboard');
     } catch (error: any) {
       const msg = error.response?.data?.error || error.message;
-      const isNetwork = error.code === 'ECONNREFUSED' || error.message?.includes('Network Error') || !error.response;
-      const is502 = error.response?.status === 502;
-      if (isNetwork || is502) {
-        const hint = is502
-          ? 'Backend unreachable. Set BACKEND_URL (Vercel) or ensure the backend service is running (Render).'
-          : 'Cannot reach server. Local: run "npm run dev" from project root. Deployed: set BACKEND_URL and ensure backend is up.';
-        toast.error(hint);
+      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error') || !error.response) {
+        toast.error('Cannot reach server. Is the backend running? Start it with: npm run dev (from project root)');
       } else {
         toast.error(msg);
       }

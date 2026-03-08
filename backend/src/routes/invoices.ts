@@ -186,8 +186,8 @@ const generateInvoicePDF = async (invoice: any, items: any[], skuMap: Record<str
   doc.text('Qty', colQty + 4, y + 5);
   doc.text('Item ID', colId, y + 5);
   doc.text('Product Name', colName, y + 5);
-  doc.text('Unit Cost', colUnitCost, y + 5, { width: 60, align: 'right' });
-  doc.text('Total Cost', colTotalCost, y + 5, { width: 60, align: 'right' });
+  doc.text('Unit price', colUnitCost, y + 5, { width: 60, align: 'right' });
+  doc.text('Amount', colTotalCost, y + 5, { width: 60, align: 'right' });
   doc.fillColor('black');
   doc.font('Helvetica');
   y += 20;

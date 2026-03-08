@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Edit, Search, User, Trash2, FileDown, X, FileText, DollarSign, ChevronDown } from 'lucide-react';
@@ -73,6 +74,7 @@ export default function CustomersPage() {
   const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
   const [receivePaymentCustomerId, setReceivePaymentCustomerId] = useState<string | undefined>();
   const [actionDropdownId, setActionDropdownId] = useState<string | null>(null);
+  const [actionDropdownAnchor, setActionDropdownAnchor] = useState<DOMRect | null>(null);
   const apiBase = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/api\/?$/, '') : '';
 
   const fetchCustomers = async () => {
@@ -447,30 +449,21 @@ export default function CustomersPage() {
                     <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="relative inline-block">
                         <button
-                          onClick={(e) => { e.stopPropagation(); setActionDropdownId(actionDropdownId === c.id ? null : c.id); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (actionDropdownId === c.id) {
+                              setActionDropdownId(null);
+                              setActionDropdownAnchor(null);
+                            } else {
+                              setActionDropdownId(c.id);
+                              setActionDropdownAnchor(e.currentTarget.getBoundingClientRect());
+                            }
+                          }}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-[#0f766e] text-white hover:bg-[#0d6b63]"
                         >
                           {openBal > 0 ? 'Receive payment' : 'Create invoice'}
                           <ChevronDown className="w-4 h-4" />
                         </button>
-                        {actionDropdownId === c.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setActionDropdownId(null); }} />
-                            <div className="absolute right-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[160px]">
-                              {openBal > 0 && (
-                                <button type="button" onClick={(e) => openReceivePayment(c.id, e)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                                  Receive payment
-                                </button>
-                              )}
-                              <button type="button" onClick={(e) => openCreateInvoice(c, e)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                                Create invoice
-                              </button>
-                              <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(c); setActionDropdownId(null); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                                Edit customer
-                              </button>
-                            </div>
-                          </>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -483,6 +476,35 @@ export default function CustomersPage() {
           )}
         </div>
       )}
+
+      {typeof document !== 'undefined' && actionDropdownId && actionDropdownAnchor && (() => {
+        const c = customers.find((x) => x.id === actionDropdownId);
+        if (!c) return null;
+        const openBal = getOpenBalance(c.id);
+        const closeDropdown = () => { setActionDropdownId(null); setActionDropdownAnchor(null); };
+        return createPortal(
+          <>
+            <div className="fixed inset-0 z-[100]" aria-hidden onClick={(e) => { e.stopPropagation(); closeDropdown(); }} />
+            <div
+              className="fixed z-[101] py-1 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[160px]"
+              style={{ top: actionDropdownAnchor.bottom + 4, right: typeof window !== 'undefined' ? window.innerWidth - actionDropdownAnchor.right : 0 }}
+            >
+              {openBal > 0 && (
+                <button type="button" onClick={(e) => { openReceivePayment(c.id, e); closeDropdown(); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                  Receive payment
+                </button>
+              )}
+              <button type="button" onClick={(e) => { openCreateInvoice(c, e); closeDropdown(); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                Create invoice
+              </button>
+              <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(c); closeDropdown(); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                Edit customer
+              </button>
+            </div>
+          </>,
+          document.body
+        );
+      })()}
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={handleCustomerModalClose}>

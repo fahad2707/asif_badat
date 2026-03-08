@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Plus, Search, CheckCircle, XCircle, X, FileText, Trash2 } from 'lucide-react';
+import { Plus, Search, CheckCircle, XCircle, X, FileText, Trash2, Download } from 'lucide-react';
 import adminApi from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 import SearchableProductDropdown from '@/components/admin/SearchableProductDropdown';
@@ -367,31 +367,57 @@ export default function CreditMemosPage() {
                       </td>
                       <td className="py-2 px-4 text-sm">{formatDate(cm.created_at)}</td>
                       <td className="py-2 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setDetailId(detailId === cm.id ? null : cm.id)}
-                          className="text-[#0f766e] hover:underline text-sm font-medium mr-2"
-                        >
-                          {detailId === cm.id ? 'Hide' : 'View'}
-                        </button>
-                        {cm.status === 'DRAFT' && (
+                        <div className="flex items-center justify-end gap-2 flex-wrap">
                           <button
                             type="button"
-                            onClick={() => handleApprove(cm.id)}
-                            className="text-green-600 hover:underline text-sm font-medium mr-2"
+                            onClick={() => setDetailId(detailId === cm.id ? null : cm.id)}
+                            className="text-[#0f766e] hover:underline text-sm font-medium"
                           >
-                            Approve
+                            {detailId === cm.id ? 'Hide' : 'View'}
                           </button>
-                        )}
-                        {(cm.status === 'DRAFT' || cm.status === 'APPROVED') && (
                           <button
                             type="button"
-                            onClick={() => handleCancel(cm.id)}
-                            className="text-red-600 hover:underline text-sm"
+                            onClick={async () => {
+                              try {
+                                const res = await adminApi.get(`/credit-memos/${cm.id}/pdf`, { responseType: 'blob' });
+                                const url = window.URL.createObjectURL(new Blob([res.data]));
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `credit-memo-${cm.credit_memo_number || cm.id}.pdf`;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                window.URL.revokeObjectURL(url);
+                                toast.success('PDF downloaded');
+                              } catch {
+                                toast.error('Failed to download PDF');
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 text-[#0f766e] hover:underline text-sm font-medium"
+                            title="Download PDF"
                           >
-                            Cancel
+                            <Download className="w-4 h-4" />
+                            Download
                           </button>
-                        )}
+                          {cm.status === 'DRAFT' && (
+                            <button
+                              type="button"
+                              onClick={() => handleApprove(cm.id)}
+                              className="text-green-600 hover:underline text-sm font-medium"
+                            >
+                              Approve
+                            </button>
+                          )}
+                          {(cm.status === 'DRAFT' || cm.status === 'APPROVED') && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancel(cm.id)}
+                              className="text-red-600 hover:underline text-sm"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

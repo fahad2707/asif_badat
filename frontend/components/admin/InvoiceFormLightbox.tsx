@@ -176,13 +176,13 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
   const total = subtotal + taxAmount;
 
 
-  const getLineCost = (line: LineItem): number | null | undefined => {
+  /** Cost price (product cost) for display in Cost price column */
+  const getLineCostPrice = (line: LineItem): number | undefined => {
     if (line.cost_price != null) return Number(line.cost_price);
     const pid = line.product_id ? String(line.product_id) : '';
     if (!pid) return undefined;
     const p = products.find((q) => String(q.id) === pid);
-    const cp = p?.cost_price;
-    return cp != null ? Number(cp) : undefined;
+    return p?.cost_price != null ? Number(p.cost_price) : undefined;
   };
 
   const warnIfOverStock = (name: string, qty: number, stock: number | undefined) => {
@@ -562,7 +562,8 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
                         <th className="text-left py-3 px-4 w-10">#</th>
                         <th className="text-left py-3 px-4 min-w-[200px]">Product</th>
                         <th className="text-left py-3 px-4 min-w-[120px]">Category</th>
-                        <th className="text-right py-3 px-4 w-24">Cost</th>
+                        <th className="text-right py-3 px-4 w-24">Cost price</th>
+                        <th className="text-right py-3 px-4 w-24">Selling price</th>
                         <th className="text-right py-3 px-4 w-20">Qty</th>
                         <th className="text-right py-3 px-4 w-28">Amount</th>
                         <th className="w-12 px-4" />
@@ -581,7 +582,7 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
                                 products={products}
                                 value={line.product_id}
                                 displayName={line.product_name || undefined}
-                                onSelect={(p) => selectProductForLine(idx, { id: p.id, name: p.name, price: p.price ?? 0, cost_price: p.cost_price, category_name: p.category_name, stock_quantity: p.stock_quantity })}
+                                onSelect={(p) => selectProductForLine(idx, p)}
                                 onBarcodeScan={(code) => {
                                   adminApi.get(`/products/barcode/${encodeURIComponent(code)}`)
                                     .then((r) => {
@@ -597,7 +598,21 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
                               )}
                             </td>
                             <td className="py-2 px-4 text-gray-600">{line.category_name || ''}</td>
-                            <td className="py-2 px-4 text-right text-gray-600">{hasProduct && (() => { const c = getLineCost(line); return typeof c === 'number' ? `$${c.toFixed(2)}` : '—'; })()}</td>
+                            <td className="py-2 px-4 text-right text-gray-600">{hasProduct && (() => { const c = getLineCostPrice(line); return typeof c === 'number' ? `$${c.toFixed(2)}` : '—'; })()}</td>
+                            <td className="py-2 px-4 text-right">
+                              {hasProduct ? (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.01}
+                                  value={line.price}
+                                  onChange={(e) => updateLine(idx, 'price', e.target.value)}
+                                  className="w-20 text-right border border-gray-300 rounded px-2 py-1"
+                                />
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </td>
                             <td className="py-2 px-4 text-right">
                               {hasProduct ? (
                                 <input
