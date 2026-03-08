@@ -582,7 +582,7 @@ export default function InvoiceFormLightbox({ isOpen, onClose, onSaved, editId, 
                                 products={products}
                                 value={line.product_id}
                                 displayName={line.product_name || undefined}
-                                onSelect={(p) => selectProductForLine(idx, p)}
+                                onSelect={(p) => selectProductForLine(idx, { id: p.id, name: p.name, price: p.price ?? 0, cost_price: p.cost_price, category_name: p.category_name, stock_quantity: p.stock_quantity })}
                                 onBarcodeScan={(code) => {
                                   adminApi.get(`/products/barcode/${encodeURIComponent(code)}`)
                                     .then((r) => {
