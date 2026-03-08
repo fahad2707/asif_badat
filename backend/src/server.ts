@@ -5,6 +5,8 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 
 import connectDB from './db/connection';
+import Admin from './models/Admin';
+import bcrypt from 'bcryptjs';
 
 // Routes
 import authRoutes from './routes/auth';
@@ -50,8 +52,23 @@ process.on('uncaughtException', (err) => {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Connect to MongoDB
-connectDB();
+// Ensure default admin exists (admin@edinc.com / Admin1234) when no admin is in DB
+async function ensureDefaultAdmin() {
+  try {
+    const existing = await Admin.findOne({ email: 'admin@edinc.com' });
+    if (existing) return;
+    const hashed = await bcrypt.hash('Admin1234', 10);
+    await Admin.create({
+      email: 'admin@edinc.com',
+      password_hash: hashed,
+      name: 'Admin',
+      role: 'admin',
+    });
+    console.log('✅ Default admin created (admin@edinc.com / Admin1234)');
+  } catch (e) {
+    console.error('Could not ensure default admin:', e);
+  }
+}
 
 // Security middleware
 app.use(helmet());
@@ -109,7 +126,6 @@ app.use('/api/returns', returnsRoutes);
 app.use('/api/receipts', receiptsRoutes);
 app.use('/api/credit-memos', creditMemoRoutes);
 app.use('/api/online-orders', onlineOrderRoutes);
-app.use('/api/online-orders', onlineOrderRoutes);
 app.use('/api/shipments', shipmentRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/reports', reportRoutes);
@@ -128,15 +144,21 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+let server: ReturnType<typeof app.listen> | null = null;
+
+async function start() {
+  await connectDB();
+  await ensureDefaultAdmin();
+  server = app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+  });
+}
+
+start();
 
 function shutdown(signal: string) {
   console.log(`\n${signal} received, shutting down gracefully...`);
-  server.close(() => {
-    process.exit(0);
-  });
+  if (server) server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 5000);
 }
 process.on('SIGINT', () => shutdown('SIGINT'));

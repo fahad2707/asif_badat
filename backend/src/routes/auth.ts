@@ -25,7 +25,8 @@ router.post('/admin/login', async (req, res) => {
 
     const { email, password } = schema.parse(req.body);
 
-    const admin = await Admin.findOne({ email });
+    const emailLower = email.trim().toLowerCase();
+    const admin = await Admin.findOne({ $expr: { $eq: [{ $toLower: '$email' }, emailLower] } });
 
     if (!admin) {
       return res.status(401).json({ error: 'Invalid credentials' });
