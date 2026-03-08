@@ -70,9 +70,12 @@ async function ensureDefaultAdmin() {
   }
 }
 
-// Security middleware
-app.use(helmet());
-// Allow both localhost and 127.0.0.1 so frontend works from either
+// Security middleware – disable cross-origin headers that block API calls from frontend on different origin (e.g. Render)
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+// CORS: allow frontend (same host, localhost, or Render)
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:3000',
@@ -80,13 +83,17 @@ const allowedOrigins = [
   'http://localhost:3001',
   'http://127.0.0.1:3001',
 ].filter(Boolean) as string[];
+const isAllowedOrigin = (origin: string) =>
+  allowedOrigins.includes(origin) || origin.includes('.onrender.com');
 app.use(cors({
   origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
     if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
+    if (isAllowedOrigin(origin)) return cb(null, true);
     return cb(null, true);
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 
