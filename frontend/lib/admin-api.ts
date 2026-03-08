@@ -36,12 +36,30 @@ adminApi.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors (don't redirect on 401 from admin login attempt - let the page show error)
+const RETRY_DELAY_MS = 2200;
+const MAX_RETRIES = 1;
+
+function isNetworkError(err: any) {
+  if (!err) return false;
+  if (err.code === 'ERR_NETWORK' || err.code === 'ECONNREFUSED') return true;
+  if (err.message && (err.message === 'Network Error' || err.message.includes('access control'))) return true;
+  if (!err.response && err.request) return true; // connection lost / no response
+  return false;
+}
+
+// Retry once on network/connection failure (e.g. backend cold start on Render)
 adminApi.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const config = error.config;
+    const retryCount = config?.__retryCount ?? 0;
+    if (isNetworkError(error) && config && retryCount < MAX_RETRIES) {
+      config.__retryCount = retryCount + 1;
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      return adminApi.request(config);
+    }
     if (error.response?.status === 401) {
-      const isLoginAttempt = error.config?.url?.includes('/auth/admin/login');
+      const isLoginAttempt = config?.url?.includes('/auth/admin/login');
       if (!isLoginAttempt && typeof window !== 'undefined') {
         localStorage.removeItem('adminToken');
         window.location.href = '/admin/login';
